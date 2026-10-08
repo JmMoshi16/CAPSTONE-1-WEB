@@ -7,24 +7,22 @@ import { Settings as SettingsIcon, Save, RotateCcw } from 'lucide-react';
 import { subscribeToSettings, saveSettings } from '@/lib/firebaseService';
 import { AppSettings, DEFAULT_SETTINGS } from '@/lib/types';
 import toast from 'react-hot-toast';
+import { useLoadTimeout } from '@/lib/useLoadTimeout';
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [form, setForm] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(false);
+  const error = useLoadTimeout(loading);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (loading) setError(true);
-    }, 15000);
     const unsub = subscribeToSettings(data => {
       setSettings(data);
       setForm(data);
       setLoading(false);
     });
-    return () => { clearTimeout(timer); unsub(); };
+    return () => { unsub(); };
   }, []);
 
   const isDirty = JSON.stringify(form) !== JSON.stringify(settings);

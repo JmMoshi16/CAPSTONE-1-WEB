@@ -8,19 +8,16 @@ import { AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, X
 import { subscribeToCustomers, subscribeToWasteLogs, subscribeToRedemptions } from '@/lib/firebaseService';
 import { UserModel, WasteLog, Redemption } from '@/lib/types';
 import { format, subDays, startOfDay, isToday, isYesterday, startOfWeek, startOfMonth } from 'date-fns';
+import { useLoadTimeout } from '@/lib/useLoadTimeout';
 
 export default function DashboardPage() {
   const [customers, setCustomers] = useState<UserModel[]>([]);
   const [logs, setLogs] = useState<WasteLog[]>([]);
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
   const [ready, setReady] = useState({ customers: false, logs: false, redemptions: false });
-  const [error, setError] = useState(false);
   const [timeRange, setTimeRange] = useState<'today' | 'week' | 'month' | 'all'>('week');
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!ready.customers || !ready.logs || !ready.redemptions) setError(true);
-    }, 15000);
     const unsubCustomers = subscribeToCustomers(data => {
       setCustomers(data);
       setReady(r => ({ ...r, customers: true }));
@@ -33,10 +30,11 @@ export default function DashboardPage() {
       setRedemptions(data);
       setReady(r => ({ ...r, redemptions: true }));
     });
-    return () => { clearTimeout(timer); unsubCustomers(); unsubLogs(); unsubRedemptions(); };
+    return () => { unsubCustomers(); unsubLogs(); unsubRedemptions(); };
   }, []);
 
   const loading = !ready.customers || !ready.logs || !ready.redemptions;
+  const error = useLoadTimeout(loading);
 
   // Advanced Analytics Calculations
   const analytics = useMemo(() => {

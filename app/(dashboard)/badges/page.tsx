@@ -7,6 +7,7 @@ import { Award, Users, Star, TrendingUp, Lock, CheckCircle } from 'lucide-react'
 import { subscribeToCustomers } from '@/lib/firebaseService';
 import { UserModel } from '@/lib/types';
 import { getAvatarColor } from '@/lib/utils';
+import { useLoadTimeout } from '@/lib/useLoadTimeout';
 
 const BADGE_DEFS = [
   { id: 'first_scan', label: 'First Scan',   desc: 'Completed first scan',       icon: '🌱', req: 'scans',  value: 1,   color: '#8BC34A' },
@@ -24,17 +25,14 @@ const BADGE_DEFS = [
 export default function BadgesPage() {
   const [customers, setCustomers] = useState<UserModel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const error = useLoadTimeout(loading);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (loading) setError(true);
-    }, 15000);
     const unsub = subscribeToCustomers(data => {
       setCustomers(data);
       setLoading(false);
     });
-    return () => { clearTimeout(timer); unsub(); };
+    return () => { unsub(); };
   }, []);
 
   const stats = useMemo(() => {

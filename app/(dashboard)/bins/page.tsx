@@ -6,21 +6,19 @@ import { useEffect, useState } from 'react';
 import { Trash2, Wifi, WifiOff, Clock, AlertTriangle, CheckCircle, Thermometer, Battery } from 'lucide-react';
 import { subscribeToBins } from '@/lib/firebaseService';
 import { BinStatus } from '@/lib/types';
+import { useLoadTimeout } from '@/lib/useLoadTimeout';
 
 export default function BinsPage() {
   const [bins, setBins] = useState<BinStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const error = useLoadTimeout(loading);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (loading) setError(true);
-    }, 15000);
     const unsub = subscribeToBins(data => {
       setBins(data);
       setLoading(false);
     });
-    return () => { clearTimeout(timer); unsub(); };
+    return () => { unsub(); };
   }, []);
 
   const onlineBins = bins.filter(b => b.status === 'online').length;

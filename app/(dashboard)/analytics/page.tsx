@@ -18,6 +18,7 @@ import {
   ArrowUpRight, ArrowDownRight, Download, RefreshCw, Zap,
   Clock, Calendar, Leaf, Recycle, Trash2, Star,
 } from 'lucide-react';
+import { useLoadTimeout } from '@/lib/useLoadTimeout';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type TimeRange = '7d' | '30d' | 'all';
@@ -136,21 +137,18 @@ export default function AnalyticsPage() {
   const [customers, setCustomers] = useState<UserModel[]>([]);
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
   const [ready, setReady] = useState({ logs: false, customers: false, redemptions: false });
-  const [error, setError] = useState(false);
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
   const [lastRefresh, setLastRefresh] = useState(new Date());
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!ready.logs || !ready.customers || !ready.redemptions) setError(true);
-    }, 15000);
     const u1 = subscribeToWasteLogs(d => { setLogs(d); setReady(r => ({ ...r, logs: true })); });
     const u2 = subscribeToCustomers(d => { setCustomers(d); setReady(r => ({ ...r, customers: true })); });
     const u3 = subscribeToRedemptions(d => { setRedemptions(d); setReady(r => ({ ...r, redemptions: true })); });
-    return () => { clearTimeout(timer); u1(); u2(); u3(); };
+    return () => { u1(); u2(); u3(); };
   }, []);
 
   const loading = !ready.logs || !ready.customers || !ready.redemptions;
+  const error = useLoadTimeout(loading);
 
   const handleRefresh = useCallback(() => setLastRefresh(new Date()), []);
 

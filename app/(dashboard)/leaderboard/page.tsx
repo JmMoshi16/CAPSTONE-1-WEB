@@ -7,6 +7,7 @@ import { Trophy, Medal, Star, Recycle, Flame, TrendingUp, Crown, Users } from 'l
 import { subscribeToLeaderboard } from '@/lib/firebaseService';
 import { UserModel } from '@/lib/types';
 import { getAvatarColor } from '@/lib/utils';
+import { useLoadTimeout } from '@/lib/useLoadTimeout';
 
 const BADGE_DEFS = [
   { id: 'first_scan',  label: 'First Scan',   icon: '🌱' },
@@ -31,18 +32,15 @@ function getRankTier(points: number) {
 export default function LeaderboardPage() {
   const [users, setUsers] = useState<UserModel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const error = useLoadTimeout(loading);
   const [selected, setSelected] = useState<UserModel | null>(null);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (loading) setError(true);
-    }, 15000);
     const unsub = subscribeToLeaderboard(data => {
       setUsers(data);
       setLoading(false);
     });
-    return () => { clearTimeout(timer); unsub(); };
+    return () => { unsub(); };
   }, []);
 
   const top3 = users.slice(0, 3);

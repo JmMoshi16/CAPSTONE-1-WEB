@@ -9,6 +9,7 @@ import { UserModel, WasteLog, SortOption } from '@/lib/types';
 import { getRankBadge, getAvatarColor } from '@/lib/utils';
 import { format, isToday, isYesterday, subDays, startOfWeek } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { useLoadTimeout } from '@/lib/useLoadTimeout';
 
 export default function UsersPage() {
   const [customers, setCustomers] = useState<UserModel[]>([]);
@@ -18,18 +19,15 @@ export default function UsersPage() {
   const [filterRank, setFilterRank] = useState<string>('all');
   const [selectedUser, setSelectedUser] = useState<UserModel | null>(null);
   const [ready, setReady] = useState({ customers: false, logs: false });
-  const [error, setError] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!ready.customers || !ready.logs) setError(true);
-    }, 15000);
     const unsubCustomers = subscribeToCustomers(data => { setCustomers(data); setReady(r => ({ ...r, customers: true })); });
     const unsubLogs = subscribeToWasteLogs(data => { setLogs(data); setReady(r => ({ ...r, logs: true })); });
-    return () => { clearTimeout(timer); unsubCustomers(); unsubLogs(); };
+    return () => { unsubCustomers(); unsubLogs(); };
   }, []);
 
   const loading = !ready.customers || !ready.logs;
+  const error = useLoadTimeout(loading);
 
   const analytics = useMemo(() => {
     const totalPoints = customers.reduce((sum, u) => sum + u.points, 0);
