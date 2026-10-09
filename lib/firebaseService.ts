@@ -12,7 +12,6 @@ import {
   onSnapshot,
   orderBy,
   runTransaction,
-  increment,
   Timestamp,
   serverTimestamp,
 } from 'firebase/firestore';
@@ -199,7 +198,8 @@ export const manualClaimPoints = async (
   const matchingToken = tokensSnap.docs[0];
 
   const tokenData = matchingToken.data();
-  const expiresAt = tokenData.expiresAt ? new Date(tokenData.expiresAt) : null;
+  // Timestamp (H-07) or legacy ISO string; new Date(Timestamp) would be Invalid Date = never expired.
+  const expiresAt = tokenData.expiresAt ? new Date(_toDateStr(tokenData.expiresAt)) : null;
   if (expiresAt && new Date() > expiresAt) return { success: false, error: 'This QR token has expired.' };
 
   const usedBy: string[] = tokenData.usedBy ?? [];
@@ -210,18 +210,26 @@ export const manualClaimPoints = async (
   const pointsMap: Record<string, number> = { Biodegradable: 15, Recyclable: 10, Residual: 5 };
   const pointsAwarded = pointsMap[wasteType] ?? 5;
 
-  // Mark token used + credit points + log waste — all in one transaction
+  // Mark token used + credit points + log waste — all in one transaction.
+  // Keeps lifetimePoints and the public profiles/{uid} copy in step with the app (audit M-11 / H-13).
   await runTransaction(firestore, async tx => {
     const tokenRef = doc(firestore, 'qr_tokens', matchingToken.id);
     const userRef = doc(firestore, 'users', userDoc.id);
     const logRef = doc(collection(firestore, 'waste_logs'));
+    const live = (await tx.get(userRef)).data() ?? {};
+    const points = (live.points ?? 0) + pointsAwarded;
+    const lifetimePoints = (typeof live.lifetimePoints === 'number' ? live.lifetimePoints : live.points ?? 0) + pointsAwarded;
     tx.update(tokenRef, { usedBy: [...usedBy, userDoc.id], isUsed: true });
-    tx.update(userRef, { points: increment(pointsAwarded) });
+    tx.update(userRef, { points, lifetimePoints });
+    tx.set(doc(firestore, 'profiles', userDoc.id), {
+      username: live.username ?? '', points, lifetimePoints, badges: live.badges ?? [],
+    });
     tx.set(logRef, {
       userId: userDoc.id,
       wasteType,
       pointsEarned: pointsAwarded,
-      timestamp: new Date().toISOString(),
+      pointsAwarded,
+      timestamp: serverTimestamp(),
       binId: matchingToken.id.substring(0, 8),
     });
   });
