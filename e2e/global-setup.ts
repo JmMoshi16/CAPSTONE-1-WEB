@@ -60,4 +60,39 @@ export default async function globalSetup() {
       tokenCreatedAt: new Date(at.getTime() - 30_000), expiresAt: new Date(at.getTime() + 20 * 60_000), secondsAfterCreation: 30 };
   }
   await write(docs);
+  if (process.env.E2E_SEED === 'load') await seedLoad(now);
+}
+
+// Phase 9 load set: 500 customers, 5,000 waste logs and scans over 90 days, 300 redemptions.
+export const LOAD = { customers: 500, scans: 5000, redemptions: 300, days: 90 };
+async function seedLoad(now: Date) {
+  const types = ['Biodegradable', 'Recyclable', 'Residual'] as const;
+  const docs: Record<string, Record<string, unknown>> = {};
+  const flush = async () => {
+    const entries = Object.entries(docs);
+    for (let i = 0; i < entries.length; i += 400) await write(Object.fromEntries(entries.slice(i, i + 400)));
+    for (const k of Object.keys(docs)) delete docs[k];
+  };
+  for (let c = 0; c < LOAD.customers; c++) {
+    const pts = (c * 37) % 900;
+    docs[`users/load${c}`] = { username: `user${c}`, email: `user${c}@load.test`, role: 'customer', points: pts,
+      lifetimePoints: pts + (c % 7) * 10, createdAt: new Date(now.getTime() - (c % LOAD.days) * 86_400_000),
+      scanCount: Math.floor(LOAD.scans / LOAD.customers), streak: c % 5, badges: c % 3 ? ['first_scan'] : [] };
+    docs[`profiles/load${c}`] = { username: `user${c}`, points: pts, lifetimePoints: pts + (c % 7) * 10, badges: c % 3 ? ['first_scan'] : [] };
+  }
+  await flush();
+  for (let s = 0; s < LOAD.scans; s++) {
+    const at = new Date(now.getTime() - ((s * 7919) % (LOAD.days * 86_400)) * 1000);
+    const uid = `load${s % LOAD.customers}`, type = types[s % 3], pts = [15, 10, 5][s % 3];
+    docs[`waste_logs/l${s}`] = { userId: uid, wasteType: type, pointsEarned: pts, pointsAwarded: pts, timestamp: at, binId: `t${s}` };
+    docs[`qr_scan_history/h${s}`] = { token: `t${s}`, wasteType: type, scannedAt: at, scannedByUid: uid, scannedByName: `user${s % LOAD.customers}`,
+      scannedByEmail: `user${s % LOAD.customers}@load.test`, pointsAwarded: pts, tokenCreatedAt: at, expiresAt: at, secondsAfterCreation: 40 };
+    if (Object.keys(docs).length >= 2000) await flush();
+  }
+  await flush();
+  for (let r = 0; r < LOAD.redemptions; r++) {
+    docs[`redemptions/r${r}`] = { userId: `load${r}`, userEmail: `user${r}@load.test`, rewardId: 'coffee', rewardTitle: 'Free Coffee',
+      pointsUsed: 50, redeemedAt: new Date(now.getTime() - r * 3_600_000), status: r % 4 ? 'claimed' : 'pending', redemptionCode: `R${r}` };
+  }
+  await flush();
 }

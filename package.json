@@ -9,6 +9,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"lib/**/*.test.ts\"",
+    "perf": "node e2e/build.mjs && npx --yes firebase-tools@15.33.0 emulators:exec --config e2e/firebase.json --only auth,firestore --project demo-ecoreward \"npx playwright test e2e/perf.spec.ts\"",
     "e2e": "node e2e/build.mjs && npx --yes firebase-tools@15.33.0 emulators:exec --config e2e/firebase.json --only auth,firestore --project demo-ecoreward \"npx playwright test\""
   },
   "dependencies": {

@@ -8,8 +8,8 @@ import {
   Tooltip, ResponsiveContainer, Legend, Line,
   ComposedChart, Cell, PieChart, Pie,
 } from 'recharts';
-import { subscribeToWasteLogs, subscribeToCustomers, subscribeToRedemptions } from '@/lib/firebaseService';
-import { WasteLog, UserModel, Redemption, lifetimeOf, creditedOf } from '@/lib/types';
+import { subscribeToWasteLogs, subscribeToRecentWasteLogs, subscribeToLeaderboard, getAdminStats, countLogsBetween, type AdminStats } from '@/lib/firebaseService';
+import { WasteLog, UserModel, lifetimeOf, creditedOf } from '@/lib/types';
 import { toDate } from '@/lib/dates';
 import { format, subDays, startOfWeek } from 'date-fns';
 import LoadError from '@/components/LoadError';
@@ -133,21 +133,39 @@ function LoadingSkeleton() {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function AnalyticsPage() {
-  const [logs, setLogs] = useState<WasteLog[]>([]);
-  const [customers, setCustomers] = useState<UserModel[]>([]);
-  const [redemptions, setRedemptions] = useState<Redemption[]>([]);
-  const [ready, setReady] = useState({ logs: false, customers: false, redemptions: false });
+  // Phase 9: last 31 days of logs (shared with the dashboard), all logs only for 'All time',
+  // totals and the previous period by server-side aggregation, top customers from the leaderboard.
+  const [recentLogs, setRecentLogs] = useState<WasteLog[] | null>(null);
+  const [allLogs, setAllLogs] = useState<WasteLog[] | null>(null);
+  const [top, setTop] = useState<UserModel[] | null>(null);
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [prevTotal, setPrevTotal] = useState<number | undefined>(undefined);
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
   const [lastRefresh, setLastRefresh] = useState(new Date());
 
   useEffect(() => {
-    const u1 = subscribeToWasteLogs(d => { setLogs(d); setReady(r => ({ ...r, logs: true })); });
-    const u2 = subscribeToCustomers(d => { setCustomers(d); setReady(r => ({ ...r, customers: true })); });
-    const u3 = subscribeToRedemptions(d => { setRedemptions(d); setReady(r => ({ ...r, redemptions: true })); });
-    return () => { u1(); u2(); u3(); };
+    getAdminStats().then(setStats).catch(e => console.error('[analytics stats]', e));
+    const u1 = subscribeToRecentWasteLogs(setRecentLogs);
+    const u2 = subscribeToLeaderboard(setTop);
+    return () => { u1(); u2(); };
   }, []);
 
-  const loading = !ready.logs || !ready.customers || !ready.redemptions;
+  useEffect(() => {
+    if (timeRange !== 'all') return;
+    return subscribeToWasteLogs(setAllLogs);
+  }, [timeRange]);
+
+  useEffect(() => {
+    setPrevTotal(undefined);
+    const span = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 0;
+    if (!span) return;
+    const now = new Date();
+    countLogsBetween(subDays(now, 2 * span), subDays(now, span)).then(setPrevTotal).catch(() => setPrevTotal(undefined));
+  }, [timeRange, lastRefresh]);
+
+  const logs = useMemo(() => (timeRange === 'all' ? allLogs : recentLogs) ?? [], [timeRange, allLogs, recentLogs]);
+  const customers = useMemo(() => top ?? [], [top]);
+  const loading = !recentLogs || !top || !stats || (timeRange === 'all' && !allLogs);
   const error = useLoadTimeout(loading);
 
   const handleRefresh = useCallback(() => setLastRefresh(new Date()), []);
@@ -157,7 +175,6 @@ export default function AnalyticsPage() {
     const now = new Date();
     const spanDays = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 0;
     const cutoff = spanDays ? subDays(now, spanDays) : new Date(0);
-    const prevCutoff = spanDays ? subDays(cutoff, spanDays) : new Date(0);
     const weekStart = startOfWeek(now);
 
     const days = spanDays || 30;
@@ -167,13 +184,13 @@ export default function AnalyticsPage() {
     const waste = { Biodegradable: { value: 0, points: 0 }, Recyclable: { value: 0, points: 0 }, Residual: { value: 0, points: 0 } };
     const perUser = new Map<string, number>(), perUserWeek = new Map<string, number>();
     const active = new Set<string>();
-    let total = 0, prevTotal = 0, totalPoints = 0;
+    let total = 0, totalPoints = 0;
 
     for (const l of logs) {
       const d = toDate(l.timestamp);
       if (!d) continue;
       if (d >= weekStart) perUserWeek.set(l.userId, (perUserWeek.get(l.userId) ?? 0) + 1);
-      if (d < cutoff) { if (spanDays && d >= prevCutoff) prevTotal++; continue; }
+      if (d < cutoff) continue;
       const pts = creditedOf(l);
       total++; totalPoints += pts; active.add(l.userId);
       hourly[d.getHours()]++;
@@ -197,9 +214,7 @@ export default function AnalyticsPage() {
       { name: 'Recyclable',    ...waste.Recyclable,    color: COLORS.blue },
       { name: 'Residual',      ...waste.Residual,      color: COLORS.red },
     ];
-    const topUsers = [...customers]
-      .sort((a, b) => lifetimeOf(b) - lifetimeOf(a))
-      .slice(0, 8)
+    const topUsers = customers.slice(0, 8)
       .map(u => ({ ...u, disposals: perUser.get(u.uid) ?? 0, weekDisposals: perUserWeek.get(u.uid) ?? 0 }));
 
     const activeUsers = active.size;
@@ -207,13 +222,13 @@ export default function AnalyticsPage() {
       dailyTrend, hourlyData, peakHour, wasteBreakdown, topUsers,
       totalDisposals: total,
       totalPoints,
-      engagementRate: customers.length > 0 ? (activeUsers / customers.length) * 100 : 0,
+      engagementRate: (stats?.customers ?? 0) > 0 ? (activeUsers / stats!.customers) * 100 : 0,
       avgPerUser: activeUsers > 0 ? total / activeUsers : 0,
-      redemptionRate: total > 0 ? (redemptions.length / total) * 100 : 0,
-      growth: spanDays && prevTotal > 0 ? ((total - prevTotal) / prevTotal) * 100 : undefined,
+      redemptionRate: total > 0 ? ((stats?.redemptions ?? 0) / total) * 100 : 0,
+      growth: spanDays && prevTotal ? ((total - prevTotal) / prevTotal) * 100 : undefined,
       activeUsers,
     };
-  }, [logs, customers, redemptions, timeRange]);
+  }, [logs, customers, stats, prevTotal, timeRange]);
 
   if (error) return <LoadError what="analytics" />;
 

@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { useEffect, useState, useMemo, type ElementType } from 'react';
 import { Users as UsersIcon, Search, Star, Recycle, TrendingUp, ChevronRight, Download, Filter, Award, Activity, Clock, Target, Zap, BarChart3, ArrowUpRight, ArrowDownRight } from 'lucide-react';
-import { subscribeToCustomers, subscribeToWasteLogs, exportToCSV } from '@/lib/firebaseService';
+import { subscribeToCustomers, subscribeToRecentWasteLogs, getUserWasteLogs, exportToCSV } from '@/lib/firebaseService';
 import { UserModel, WasteLog, SortOption, lifetimeOf, creditedOf } from '@/lib/types';
 import { getRankBadge, getAvatarColor } from '@/lib/utils';
 import { fmtDate, toDate, dayKey } from '@/lib/dates';
@@ -13,7 +13,9 @@ import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import LoadError from '@/components/LoadError';
 
-const NO_LOGS: WasteLog[] = [];
+// Phase 9: total disposals per customer come from users.scanCount (kept by the app), activity from the
+// shared last-31-days listener, and one customer's full history only when their panel opens.
+const disposalsOf = (u: UserModel) => u.scanCount ?? 0;
 
 export default function UsersPage() {
   const [customers, setCustomers] = useState<UserModel[]>([]);
@@ -26,7 +28,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     const unsubCustomers = subscribeToCustomers(data => { setCustomers(data); setReady(r => ({ ...r, customers: true })); });
-    const unsubLogs = subscribeToWasteLogs(data => { setLogs(data); setReady(r => ({ ...r, logs: true })); });
+    const unsubLogs = subscribeToRecentWasteLogs(data => { setLogs(data); setReady(r => ({ ...r, logs: true })); });
     return () => { unsubCustomers(); unsubLogs(); };
   }, []);
 
@@ -36,23 +38,19 @@ export default function UsersPage() {
   // One pass over the logs builds every per-user / per-day number (audit M-02: this used to
   // re-filter all logs for every user, and again inside every sort comparison).
   const index = useMemo(() => {
-    const byUser = new Map<string, WasteLog[]>();
     const weekly = new Map<string, number>();
     const activeToday = new Set<string>(), activeYesterday = new Set<string>(), activeWeek = new Set<string>();
     const weekStart = startOfWeek(new Date());
     for (const l of logs) {
-      const list = byUser.get(l.userId);
-      if (list) list.push(l); else byUser.set(l.userId, [l]);
       const d = toDate(l.timestamp);
       if (!d) continue;
       if (isToday(d)) activeToday.add(l.userId);
       else if (isYesterday(d)) activeYesterday.add(l.userId);
       if (d >= weekStart) { activeWeek.add(l.userId); weekly.set(l.userId, (weekly.get(l.userId) ?? 0) + 1); }
     }
-    return { byUser, weekly, activeToday: activeToday.size, activeYesterday: activeYesterday.size, activeWeek: activeWeek.size };
+    return { weekly, activeToday: activeToday.size, activeYesterday: activeYesterday.size, activeWeek: activeWeek.size };
   }, [logs]);
 
-  const logsOf = (uid: string) => index.byUser.get(uid) ?? NO_LOGS;
 
   const analytics = useMemo(() => {
     // Rank tiers use lifetime points, like the phone app (audit M-11); the balance is shown alongside.
@@ -70,7 +68,7 @@ export default function UsersPage() {
     const topPerformers = [...customers]
       .sort((a, b) => lifetimeOf(b) - lifetimeOf(a))
       .slice(0, 3)
-      .map(u => ({ ...u, disposals: index.byUser.get(u.uid)?.length ?? 0, weeklyDisposals: index.weekly.get(u.uid) ?? 0 }));
+      .map(u => ({ ...u, disposals: disposalsOf(u), weeklyDisposals: index.weekly.get(u.uid) ?? 0 }));
 
     return {
       totalPoints,
@@ -86,7 +84,6 @@ export default function UsersPage() {
 
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const count = (uid: string) => index.byUser.get(uid)?.length ?? 0;
     return customers
       .filter(u => {
         const matchesSearch = !q || (u.username ?? '').toLowerCase().includes(q) || (u.email ?? '').toLowerCase().includes(q);
@@ -96,10 +93,10 @@ export default function UsersPage() {
       })
       .sort((a, b) => {
         if (sortBy === 'points') return lifetimeOf(b) - lifetimeOf(a);
-        if (sortBy === 'disposals') return count(b.uid) - count(a.uid);
+        if (sortBy === 'disposals') return disposalsOf(b) - disposalsOf(a);
         return (a.username ?? '').localeCompare(b.username ?? '');
       });
-  }, [customers, search, sortBy, filterRank, index]);
+  }, [customers, search, sortBy, filterRank]);
 
   const handleExport = () => {
     exportToCSV(
@@ -108,7 +105,7 @@ export default function UsersPage() {
         Email: u.email,
         'Lifetime Points': lifetimeOf(u),
         Balance: u.points,
-        Disposals: logsOf(u.uid).length,
+        Disposals: disposalsOf(u),
         'Date Joined': fmtDate(u.createdAt, 'yyyy-MM-dd', ''),
         Rank: getRankBadge(lifetimeOf(u)).label,
       })),
@@ -332,7 +329,7 @@ export default function UsersPage() {
               key={user.uid}
               user={user}
               rank={sortBy !== 'name' ? index : -1}
-              disposals={logsOf(user.uid).length}
+              disposals={disposalsOf(user)}
               onClick={() => setSelectedUser(user)}
             />
           ))}
@@ -342,7 +339,6 @@ export default function UsersPage() {
       {selectedUser && (
         <UserDrawer
           user={selectedUser}
-          logs={logsOf(selectedUser.uid)}
           onClose={() => setSelectedUser(null)}
         />
       )}
@@ -436,8 +432,14 @@ function UserCard({ user, rank, disposals, onClick }: UserCardProps) {
   );
 }
 
-interface UserDrawerProps { user: UserModel; logs: WasteLog[]; onClose: () => void }
-function UserDrawer({ user, logs, onClose }: UserDrawerProps) {
+interface UserDrawerProps { user: UserModel; onClose: () => void }
+function UserDrawer({ user, onClose }: UserDrawerProps) {
+  const [loaded, setLoaded] = useState<WasteLog[] | null>(null);
+  useEffect(() => {
+    setLoaded(null);
+    getUserWasteLogs(user.uid).then(setLoaded).catch(() => setLoaded([]));
+  }, [user.uid]);
+  const logs = loaded ?? [];
   const rankBadge = getRankBadge(lifetimeOf(user));
   const colors = getAvatarColor(user.username);
   const totalEarned = logs.reduce((sum, l) => sum + creditedOf(l), 0);

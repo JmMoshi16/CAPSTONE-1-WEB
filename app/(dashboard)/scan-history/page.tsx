@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { useEffect, useMemo, useState } from 'react';
 import { Recycle, History, User, CheckCircle, XCircle, Timer, X, ChevronRight, Search } from 'lucide-react';
-import { subscribeToSettings, subscribeToQRHistory } from '@/lib/firebaseService';
+import { subscribeToSettings, subscribeToQRHistory, loadOlderScans, getScanCounts, type ScanCounts } from '@/lib/firebaseService';
 import { WasteType, AppSettings, DEFAULT_SETTINGS, QRScanRecord } from '@/lib/types';
 import { fmtAgo, fmtDate, timeOf } from '@/lib/dates';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
@@ -16,13 +16,16 @@ const WASTE_COLORS: Record<WasteType, string> = {
   Recyclable: '#29B6F6',
   Residual: '#EF5350',
 };
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 50;   // rows rendered per 'Show more'; the data layer fetches 200 at a time
 
 // One row per phone scan, from qr_scan_history only (audit H-08). Formerly /qr, whose QR-generator
 // code was never rendered (audit M-01).
 export default function ScanHistoryPage() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [history, setHistory] = useState<QRScanRecord[] | null>(null);
+  const [history, setHistory] = useState<QRScanRecord[] | null>(null);   // newest 200, live
+  const [older, setOlder] = useState<QRScanRecord[]>([]);                  // fetched on 'Show more'
+  const [noMore, setNoMore] = useState(false);
+  const [counts, setCounts] = useState<ScanCounts | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<QRScanRecord | null>(null);
   const [search, setSearch] = useState('');
   const [shown, setShown] = useState(PAGE_SIZE);
@@ -34,16 +37,17 @@ export default function ScanHistoryPage() {
     return () => { unsubSettings(); unsubHistory(); };
   }, []);
 
-  const sorted = useMemo(
-    () => [...(history ?? [])].sort((a, b) => timeOf(b.scannedAt) - timeOf(a.scannedAt)),
-    [history],
-  );
+  // Totals by server-side count (Phase 9); refreshed whenever a new scan arrives.
+  const newest = history?.[0]?.id;
+  useEffect(() => { getScanCounts().then(setCounts).catch(e => console.error('[scan counts]', e)); }, [newest]);
 
-  const counts = useMemo(() => {
-    const c: Record<WasteType, number> = { Biodegradable: 0, Recyclable: 0, Residual: 0 };
-    for (const r of sorted) if (r.wasteType in c) c[r.wasteType]++;
-    return c;
-  }, [sorted]);
+  const sorted = useMemo(() => {
+    const seen = new Set<string>();
+    return [...(history ?? []), ...older]
+      .filter(r => (r.id && !seen.has(r.id) ? (seen.add(r.id), true) : !r.id))
+      .sort((a, b) => timeOf(b.scannedAt) - timeOf(a.scannedAt));
+  }, [history, older]);
+  const total = counts?.total ?? sorted.length;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -56,6 +60,15 @@ export default function ScanHistoryPage() {
 
   useEffect(() => { setShown(PAGE_SIZE); }, [search]);
 
+  const showMore = async () => {
+    if (shown + PAGE_SIZE > sorted.length && !noMore && !search && sorted.length < total) {
+      const more = await loadOlderScans(sorted[sorted.length - 1]?.scannedAt ?? '');
+      if (more.length === 0) setNoMore(true);
+      setOlder(o => [...o, ...more]);
+    }
+    setShown(s => s + PAGE_SIZE);
+  };
+
   if (error) return <LoadError what="scan history" />;
 
   return (
@@ -64,7 +77,7 @@ export default function ScanHistoryPage() {
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold text-white">Scan History</h1>
           <div className="px-3 py-1 bg-green/10 border border-green/30 rounded-full">
-            <span className="text-green text-xs font-bold">{history === null ? 'Loading…' : `${sorted.length} total scans`}</span>
+            <span className="text-green text-xs font-bold">{history === null ? 'Loading…' : `${total} total scans`}</span>
           </div>
         </div>
       </div>
@@ -78,10 +91,10 @@ export default function ScanHistoryPage() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatPill label="Total Scans" value={sorted.length} color="#00E676" />
-          <StatPill label="Biodegradable" value={counts.Biodegradable} color={WASTE_COLORS.Biodegradable} />
-          <StatPill label="Recyclable" value={counts.Recyclable} color={WASTE_COLORS.Recyclable} />
-          <StatPill label="Residual" value={counts.Residual} color={WASTE_COLORS.Residual} />
+          <StatPill label="Total Scans" value={total} color="#00E676" />
+          <StatPill label="Biodegradable" value={counts?.Biodegradable ?? '…'} color={WASTE_COLORS.Biodegradable} />
+          <StatPill label="Recyclable" value={counts?.Recyclable ?? '…'} color={WASTE_COLORS.Recyclable} />
+          <StatPill label="Residual" value={counts?.Residual ?? '…'} color={WASTE_COLORS.Residual} />
         </div>
 
         {filtered.length === 0 ? (
@@ -95,10 +108,10 @@ export default function ScanHistoryPage() {
             {filtered.slice(0, shown).map(record => (
               <ScanHistoryRow key={record.id} record={record} expiryMinutes={settings.qrExpiryMinutes} onClick={() => setSelectedRecord(record)} />
             ))}
-            {filtered.length > shown && (
-              <button onClick={() => setShown(s => s + PAGE_SIZE)}
+            {(filtered.length > shown || (!search && !noMore && sorted.length < total)) && (
+              <button onClick={showMore}
                 className="w-full py-3 bg-card border border-border rounded-btn text-white/60 text-sm font-semibold hover:border-green/30 hover:text-white transition">
-                Show {Math.min(PAGE_SIZE, filtered.length - shown)} more of {filtered.length - shown}
+                Show more ({(search ? filtered.length : total) - Math.min(shown, filtered.length)} not shown)
               </button>
             )}
           </div>

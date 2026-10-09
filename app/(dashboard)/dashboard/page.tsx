@@ -6,8 +6,8 @@ import { useEffect, useState, useMemo, type ElementType } from 'react';
 import Link from 'next/link';
 import { Recycle, Users, Star, Receipt, TrendingUp, TrendingDown, Clock, Activity, ArrowUpRight, ArrowDownRight, Target, Award, Leaf, BarChart3, Trophy } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { subscribeToCustomers, subscribeToWasteLogs, subscribeToRedemptions } from '@/lib/firebaseService';
-import { UserModel, WasteLog, Redemption, WasteType, lifetimeOf, creditedOf } from '@/lib/types';
+import { subscribeToRecentWasteLogs, subscribeToWasteLogs, subscribeToLeaderboard, getAdminStats, type AdminStats } from '@/lib/firebaseService';
+import { UserModel, WasteLog, WasteType, lifetimeOf, creditedOf } from '@/lib/types';
 import { toDate } from '@/lib/dates';
 import { format, subDays, startOfDay, isToday, isYesterday, startOfWeek, startOfMonth } from 'date-fns';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
@@ -18,29 +18,29 @@ const TIME_RANGES: TimeRange[] = ['today', 'week', 'month', 'all'];
 const WASTE_COLORS: Record<WasteType, string> = { Biodegradable: '#8BC34A', Recyclable: '#00B0FF', Residual: '#EF5350' };
 
 export default function DashboardPage() {
-  const [customers, setCustomers] = useState<UserModel[]>([]);
-  const [logs, setLogs] = useState<WasteLog[]>([]);
-  const [redemptions, setRedemptions] = useState<Redemption[]>([]);
-  const [ready, setReady] = useState({ customers: false, logs: false, redemptions: false });
+  // Phase 9: totals come from server-side aggregations, the top five from the 50-row leaderboard
+  // listener, and only the last 31 days of logs are downloaded (all logs only when 'All' is picked).
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [top, setTop] = useState<UserModel[] | null>(null);
+  const [recentLogs, setRecentLogs] = useState<WasteLog[] | null>(null);
+  const [allLogs, setAllLogs] = useState<WasteLog[] | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>('week');
 
   useEffect(() => {
-    const unsubCustomers = subscribeToCustomers(data => {
-      setCustomers(data);
-      setReady(r => ({ ...r, customers: true }));
-    });
-    const unsubLogs = subscribeToWasteLogs(data => {
-      setLogs(data);
-      setReady(r => ({ ...r, logs: true }));
-    });
-    const unsubRedemptions = subscribeToRedemptions(data => {
-      setRedemptions(data);
-      setReady(r => ({ ...r, redemptions: true }));
-    });
-    return () => { unsubCustomers(); unsubLogs(); unsubRedemptions(); };
+    getAdminStats().then(setStats).catch(e => console.error('[dashboard stats]', e));
+    const unsubTop = subscribeToLeaderboard(setTop);
+    const unsubLogs = subscribeToRecentWasteLogs(setRecentLogs);
+    return () => { unsubTop(); unsubLogs(); };
   }, []);
 
-  const loading = !ready.customers || !ready.logs || !ready.redemptions;
+  useEffect(() => {
+    if (timeRange !== 'all') return;
+    return subscribeToWasteLogs(setAllLogs);
+  }, [timeRange]);
+
+  const logs = useMemo(() => (timeRange === 'all' ? allLogs : recentLogs) ?? [], [timeRange, allLogs, recentLogs]);
+  const customers = useMemo(() => top ?? [], [top]);
+  const loading = !stats || !top || !recentLogs || (timeRange === 'all' && !allLogs);
   const error = useLoadTimeout(loading);
 
   // One pass over the logs builds every number on this page (audit M-02: this used to filter all
@@ -85,18 +85,20 @@ export default function DashboardPage() {
     const pct = (n: number, of: number) => (of > 0 ? (n / of) * 100 : 0);
     const change = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : undefined);
 
-    const totalPoints = customers.reduce((sum, u) => sum + lifetimeOf(u), 0);
-    const avgPointsPerUser = customers.length > 0 ? totalPoints / customers.length : 0;
+    const customerCount = stats?.customers ?? 0;
+    const totalPoints = stats?.lifetimePoints ?? 0;
+    const avgPointsPerUser = customerCount > 0 ? totalPoints / customerCount : 0;
     const bio = typeCount.Biodegradable, rec = typeCount.Recyclable, res = typeCount.Residual;
-    const pendingRedemptions = redemptions.filter(r => r.status === 'pending').length;
+    const pendingRedemptions = stats?.pendingRedemptions ?? 0;
+    const redemptionTotal = stats?.redemptions ?? 0;
     const co2Saved = inRange * 0.5;
 
     return {
       totalDisposals: inRange,
       todayDisposals: todayCount,
-      totalCustomers: customers.length,
+      totalCustomers: customerCount,
       activeUsers: activeWeek.size,
-      activeRate: pct(activeWeek.size, customers.length),
+      activeRate: pct(activeWeek.size, customerCount),
       totalPoints,
       avgPointsPerUser,
       pointsChange: change(todayPoints, yesterdayPoints),
@@ -107,20 +109,19 @@ export default function DashboardPage() {
         const d = days.get(k)!;
         return { date: format(new Date(`${k}T00:00:00`), 'MMM dd'), disposals: d.disposals, points: d.points, users: d.users.size };
       }),
-      userStats: [...customers]
-        .sort((a, b) => lifetimeOf(b) - lifetimeOf(a))
-        .slice(0, 5)
+      userStats: customers.slice(0, 5)
         .map(u => ({ ...u, disposals: disposalsInRange.get(u.uid) ?? 0 })),
       wastePerformance: (['Biodegradable', 'Recyclable', 'Residual'] as WasteType[]).map(type => ({
         type, count: typeCount[type], points: typePoints[type], color: WASTE_COLORS[type], percentage: pct(typeCount[type], inRange),
       })),
       pendingRedemptions,
-      claimedRedemptions: redemptions.length - pendingRedemptions,
-      redemptionRate: pct(redemptions.length, inRange),
+      redemptionTotal,
+      claimedRedemptions: redemptionTotal - pendingRedemptions,
+      redemptionRate: pct(redemptionTotal, inRange),
       co2Saved,
       treesEquivalent: Math.floor(co2Saved / 21),
     };
-  }, [logs, customers, redemptions, timeRange]);
+  }, [logs, customers, stats, timeRange]);
 
   if (error) return <LoadError what="the dashboard" />;
 
@@ -209,7 +210,7 @@ export default function DashboardPage() {
         <KPICard
           icon={Receipt}
           label="Redemptions"
-          value={redemptions.length}
+          value={analytics.redemptionTotal}
           subtitle={`${analytics.pendingRedemptions} pending`}
           color="#B388FF"
         />
@@ -408,9 +409,9 @@ export default function DashboardPage() {
           <div className="space-y-4">
             <HealthMetric label="Customers active this week" status={`${analytics.activeUsers} of ${analytics.totalCustomers}`} color="#00B0FF" percentage={analytics.activeRate} />
             <HealthMetric label="Redemptions waiting to be handed out" status={`${analytics.pendingRedemptions} pending`} color="#FFAB40"
-              percentage={redemptions.length > 0 ? (analytics.pendingRedemptions / redemptions.length) * 100 : 0} />
+              percentage={analytics.redemptionTotal > 0 ? (analytics.pendingRedemptions / analytics.redemptionTotal) * 100 : 0} />
             <HealthMetric label="Redemptions handed out" status={`${analytics.claimedRedemptions} claimed`} color="#00E676"
-              percentage={redemptions.length > 0 ? (analytics.claimedRedemptions / redemptions.length) * 100 : 0} />
+              percentage={analytics.redemptionTotal > 0 ? (analytics.claimedRedemptions / analytics.redemptionTotal) * 100 : 0} />
             <p className="text-white/30 text-xs">Data connection: live (Firestore listeners). Kiosk status: see Bin Management.</p>
           </div>
         </div>

@@ -13,6 +13,13 @@ import {
   limit,
   runTransaction,
   serverTimestamp,
+  startAfter,
+  Timestamp,
+  count,
+  sum,
+  getCountFromServer,
+  getAggregateFromServer,
+  type Query,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { UserModel, WasteLog, Reward, Redemption, BinStatus, AppSettings, DEFAULT_SETTINGS, QRScanRecord } from './types';
@@ -27,6 +34,15 @@ function getDb() {
   return db;
 }
 
+// Browser-test builds count billed document reads (one per changed document) so the performance test can
+// report reads per page (audit Phase 9). Never active in a real build.
+const countReads = (n: number) => {
+  if (process.env.NEXT_PUBLIC_USE_EMULATORS === '1' && typeof window !== 'undefined') {
+    const w = window as unknown as { __ecoReads?: number };
+    w.__ecoReads = (w.__ecoReads ?? 0) + n;
+  }
+};
+
 // Every date field is normalised here, at the boundary, to an ISO string or '' (audit H-07/M-06):
 // Firestore holds Timestamps and ISO strings, and `new Date(Timestamp)` is Invalid Date.
 // The subscribe* functions are shared (lib/sharedSubscription.ts): one listener per query for the
@@ -36,6 +52,7 @@ function getDb() {
 
 export const subscribeToCustomers = shareSubscription<UserModel[]>((onData, onError) =>
   onSnapshot(query(collection(getDb(), 'users'), where('role', '==', 'customer')), snapshot => {
+    countReads(snapshot.docChanges().length);
     onData(snapshot.docs.map(d => {
       const data = d.data();
       return { uid: d.id, ...data, createdAt: toIso(data.createdAt) } as UserModel;
@@ -54,6 +71,7 @@ export const subscribeToLeaderboard = shareSubscription<UserModel[]>((onData, on
     orderBy('lifetimePoints', 'desc'),
     limit(LEADERBOARD_SIZE),
   ), snapshot => {
+    countReads(snapshot.docChanges().length);
     onData(snapshot.docs.map(d => {
       const data = d.data();
       return { uid: d.id, ...data, createdAt: toIso(data.createdAt) } as UserModel;
@@ -64,16 +82,69 @@ export const subscribeToLeaderboard = shareSubscription<UserModel[]>((onData, on
 
 export const subscribeToWasteLogs = shareSubscription<WasteLog[]>((onData, onError) =>
   onSnapshot(query(collection(getDb(), 'waste_logs'), orderBy('timestamp', 'desc')), snapshot => {
+    countReads(snapshot.docChanges().length);
     onData(snapshot.docs.map(d => {
       const data = d.data();
       return { id: d.id, ...data, timestamp: toIso(data.timestamp) } as WasteLog;
     }));
   }, onError));
 
+// ─── Phase 9: bounded reads ───────────────────────────────────────────────────
+// Dashboard, Analytics and Users only chart the last 30 days, so they share one listener on the last
+// RECENT_DAYS of logs instead of every log ever written; "All time" loads subscribeToWasteLogs on demand.
+// Needs Timestamp dates (run tools/migrate_timestamps.py --apply first): a date-range query does not
+// match the old ISO-string timestamps.
+export const RECENT_DAYS = 31;
+const toLog = (id: string, data: Record<string, unknown>) => ({ id, ...data, timestamp: toIso(data.timestamp) } as WasteLog);
+
+export const subscribeToRecentWasteLogs = shareSubscription<WasteLog[]>((onData, onError) => {
+  const since = Timestamp.fromMillis(Date.now() - RECENT_DAYS * 86_400_000);
+  return onSnapshot(query(collection(getDb(), 'waste_logs'), where('timestamp', '>=', since), orderBy('timestamp', 'desc')), snapshot => {
+    countReads(snapshot.docChanges().length);
+    onData(snapshot.docs.map(d => toLog(d.id, d.data())));
+  }, onError);
+});
+
+/** One customer's logs, newest first - loaded only when their details panel opens. */
+export const getUserWasteLogs = async (uid: string): Promise<WasteLog[]> => {
+  const snap = await getDocs(query(collection(getDb(), 'waste_logs'), where('userId', '==', uid), orderBy('timestamp', 'desc')));
+  countReads(snap.size);
+  return snap.docs.map(d => toLog(d.id, d.data()));
+};
+
+// Server-side aggregations are billed about one read per 1,000 documents counted.
+const aggReads = (counted: number) => countReads(Math.max(1, Math.ceil(counted / 1000)));
+const countOf = async (q: Query) => {
+  const n = (await getCountFromServer(q)).data().count;
+  aggReads(n);
+  return n;
+};
+
+/** Number of waste logs in [from, to) without downloading them (e.g. the previous period for growth). */
+export const countLogsBetween = (from: Date, to: Date): Promise<number> =>
+  countOf(query(collection(getDb(), 'waste_logs'),
+    where('timestamp', '>=', Timestamp.fromDate(from)), where('timestamp', '<', Timestamp.fromDate(to))));
+
+export interface AdminStats { customers: number; lifetimePoints: number; redemptions: number; pendingRedemptions: number }
+
+/** Totals for the dashboard without downloading every customer and redemption (audit M-03). */
+export const getAdminStats = async (): Promise<AdminStats> => {
+  const db = getDb();
+  const customers = await getAggregateFromServer(query(collection(db, 'users'), where('role', '==', 'customer')),
+    { n: count(), lifetime: sum('lifetimePoints') });
+  aggReads(customers.data().n);
+  const [redemptions, pendingRedemptions] = await Promise.all([
+    countOf(collection(db, 'redemptions')),
+    countOf(query(collection(db, 'redemptions'), where('status', '==', 'pending'))),
+  ]);
+  return { customers: customers.data().n, lifetimePoints: customers.data().lifetime ?? 0, redemptions, pendingRedemptions };
+};
+
 // ─── Rewards ──────────────────────────────────────────────────────────────────
 
 export const subscribeToRewards = shareSubscription<Reward[]>((onData, onError) =>
   onSnapshot(collection(getDb(), 'rewards'), snapshot => {
+    countReads(snapshot.docChanges().length);
     onData(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Reward)));
   }, onError));
 
@@ -93,6 +164,7 @@ export const deleteReward = async (id: string): Promise<void> => {
 
 export const subscribeToRedemptions = shareSubscription<Redemption[]>((onData, onError) =>
   onSnapshot(query(collection(getDb(), 'redemptions'), orderBy('redeemedAt', 'desc')), snapshot => {
+    countReads(snapshot.docChanges().length);
     onData(snapshot.docs.map(d => {
       const data = d.data();
       return { id: d.id, ...data, redeemedAt: toIso(data.redeemedAt) } as Redemption;
@@ -105,23 +177,49 @@ export const markRedemptionClaimed = async (id: string): Promise<void> => {
 
 // ─── QR Scan History ──────────────────────────────────────────────────────────
 
+// The newest SCAN_PAGE scans live; older pages on request; totals by aggregation (audit Phase 9 -
+// this used to download every scan ever made on each visit).
+export const SCAN_PAGE = 200;
+const toScan = (id: string, data: Record<string, unknown>) => ({
+  id, ...data,
+  scannedAt:      toIso(data.scannedAt),
+  tokenCreatedAt: toIso(data.tokenCreatedAt),
+  expiresAt:      toIso(data.expiresAt),
+} as QRScanRecord);
+
 export const subscribeToQRHistory = shareSubscription<QRScanRecord[]>((onData, onError) =>
-  onSnapshot(query(collection(getDb(), 'qr_scan_history'), orderBy('scannedAt', 'desc')), snapshot => {
-    onData(snapshot.docs.map(d => {
-      const data = d.data();
-      return {
-        id: d.id, ...data,
-        scannedAt:      toIso(data.scannedAt),
-        tokenCreatedAt: toIso(data.tokenCreatedAt),
-        expiresAt:      toIso(data.expiresAt),
-      } as QRScanRecord;
-    }));
+  onSnapshot(query(collection(getDb(), 'qr_scan_history'), orderBy('scannedAt', 'desc'), limit(SCAN_PAGE)), snapshot => {
+    countReads(snapshot.docChanges().length);
+    onData(snapshot.docs.map(d => toScan(d.id, d.data())));
   }, onError));
+
+/** The next SCAN_PAGE scans older than `beforeIso`. */
+export const loadOlderScans = async (beforeIso: string): Promise<QRScanRecord[]> => {
+  const before = toDate(beforeIso);
+  if (!before) return [];
+  const snap = await getDocs(query(collection(getDb(), 'qr_scan_history'), orderBy('scannedAt', 'desc'),
+    startAfter(Timestamp.fromDate(before)), limit(SCAN_PAGE)));
+  countReads(snap.size);
+  return snap.docs.map(d => toScan(d.id, d.data()));
+};
+
+export interface ScanCounts { total: number; Biodegradable: number; Recyclable: number; Residual: number }
+export const getScanCounts = async (): Promise<ScanCounts> => {
+  const c = collection(getDb(), 'qr_scan_history');
+  const [total, Biodegradable, Recyclable, Residual] = await Promise.all([
+    countOf(c),
+    countOf(query(c, where('wasteType', '==', 'Biodegradable'))),
+    countOf(query(c, where('wasteType', '==', 'Recyclable'))),
+    countOf(query(c, where('wasteType', '==', 'Residual'))),
+  ]);
+  return { total, Biodegradable, Recyclable, Residual };
+};
 
 // ─── Bins ─────────────────────────────────────────────────────────────────────
 
 export const subscribeToBins = shareSubscription<BinStatus[]>((onData, onError) =>
   onSnapshot(collection(getDb(), 'bins'), snapshot => {
+    countReads(snapshot.docChanges().length);
     onData(snapshot.docs.map(d => {
       const data = d.data();
       return { binId: d.id, ...data, lastUpdated: toIso(data.lastUpdated) } as BinStatus;
@@ -132,6 +230,7 @@ export const subscribeToBins = shareSubscription<BinStatus[]>((onData, onError) 
 
 export const subscribeToSettings = shareSubscription<AppSettings>((onData, onError) =>
   onSnapshot(doc(getDb(), 'settings', 'app'), snap => {
+    countReads(1);
     onData(snap.exists() ? { ...DEFAULT_SETTINGS, ...(snap.data() as AppSettings) } : DEFAULT_SETTINGS);
   }, onError));
 
