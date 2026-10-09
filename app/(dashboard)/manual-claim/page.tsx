@@ -66,8 +66,9 @@ export default function ManualClaimPage() {
         setFoundUser(user);
         setStep('confirm');
       }
-    } catch (e: any) {
-      setErrorMsg(e?.message ?? 'Failed to look up user.');
+    } catch (e) {
+      console.error(e);
+      setErrorMsg('Could not look up the user. Check the connection and that you are signed in as an admin.');
       setStep('error');
     } finally {
       setLoading(false);
@@ -91,8 +92,9 @@ export default function ManualClaimPage() {
         setErrorMsg(res.error ?? 'Unknown error.');
         setStep('error');
       }
-    } catch (e: any) {
-      setErrorMsg(e?.message ?? 'Failed to process claim.');
+    } catch (e) {
+      console.error(e);
+      setErrorMsg('Could not credit the points. Nothing was changed — check the connection and try again.');
       setStep('error');
     } finally {
       setLoading(false);

@@ -5,18 +5,18 @@ export const dynamic = 'force-dynamic';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend, LineChart, Line,
+  Tooltip, ResponsiveContainer, Legend, Line,
   ComposedChart, Cell, PieChart, Pie,
 } from 'recharts';
 import { subscribeToWasteLogs, subscribeToCustomers, subscribeToRedemptions } from '@/lib/firebaseService';
-import { WasteLog, UserModel, Redemption } from '@/lib/types';
-import {
-  format, subDays, startOfWeek, startOfMonth, getHours,
-} from 'date-fns';
+import { WasteLog, UserModel, Redemption, lifetimeOf, creditedOf } from '@/lib/types';
+import { toDate } from '@/lib/dates';
+import { format, subDays, startOfWeek } from 'date-fns';
+import LoadError from '@/components/LoadError';
 import {
   BarChart3, TrendingUp, Users, Target, Award, Activity,
-  ArrowUpRight, ArrowDownRight, Download, RefreshCw, Zap,
-  Clock, Calendar, Leaf, Recycle, Trash2, Star,
+  ArrowUpRight, ArrowDownRight, RefreshCw, Zap,
+  Clock, Calendar, Recycle,
 } from 'lucide-react';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 
@@ -40,13 +40,14 @@ function pct(value: number, total: number) {
 }
 
 // ── Custom Tooltip ────────────────────────────────────────────────────────────
-const CustomTooltip = ({ active, payload, label }: any) => {
+interface TooltipEntry { name?: string | number; value?: number | string; color?: string }
+const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: TooltipEntry[]; label?: string | number }) => {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-[#1C2128] border border-[#30363D] rounded-xl p-3 shadow-2xl">
       <p className="text-white/70 text-xs font-semibold mb-2">{label}</p>
-      {payload.map((p: any) => (
-        <div key={p.name} className="flex items-center gap-2 text-xs">
+      {payload.map(p => (
+        <div key={String(p.name)} className="flex items-center gap-2 text-xs">
           <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
           <span className="text-white/60">{p.name}:</span>
           <span className="text-white font-bold">{p.value}</span>
@@ -64,9 +65,8 @@ interface KPICardProps {
   sub?: string;
   change?: number;
   color: string;
-  gradient?: string;
 }
-function KPICard({ icon: Icon, label, value, sub, change, color, gradient }: KPICardProps) {
+function KPICard({ icon: Icon, label, value, sub, change, color }: KPICardProps) {
   const positive = (change ?? 0) >= 0;
   return (
     <div
@@ -152,98 +152,70 @@ export default function AnalyticsPage() {
 
   const handleRefresh = useCallback(() => setLastRefresh(new Date()), []);
 
+  // Single pass over the logs (audit M-02); points are what was credited (audit M-11).
   const data = useMemo(() => {
     const now = new Date();
-    const cutoff = timeRange === '7d'
-      ? subDays(now, 7)
-      : timeRange === '30d'
-        ? subDays(now, 30)
-        : new Date(0);
+    const spanDays = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 0;
+    const cutoff = spanDays ? subDays(now, spanDays) : new Date(0);
+    const prevCutoff = spanDays ? subDays(cutoff, spanDays) : new Date(0);
+    const weekStart = startOfWeek(now);
 
-    const filtered = logs.filter(l => new Date(l.timestamp) >= cutoff);
-    const weekLogs  = logs.filter(l => new Date(l.timestamp) >= startOfWeek(now));
-    const monthLogs = logs.filter(l => new Date(l.timestamp) >= startOfMonth(now));
-    const prev = logs.filter(l => {
-      const t = new Date(l.timestamp);
-      return t >= subDays(cutoff, cutoff.getTime() === 0 ? 0 : (now.getTime() - cutoff.getTime()) / 86400000) && t < cutoff;
+    const days = spanDays || 30;
+    const dayKeys = Array.from({ length: days }, (_, i) => format(subDays(now, days - 1 - i), 'yyyy-MM-dd'));
+    const dayMap = new Map(dayKeys.map(k => [k, { Disposals: 0, Points: 0, users: new Set<string>(), Bio: 0, Rec: 0, Res: 0 }]));
+    const hourly = new Array<number>(24).fill(0);
+    const waste = { Biodegradable: { value: 0, points: 0 }, Recyclable: { value: 0, points: 0 }, Residual: { value: 0, points: 0 } };
+    const perUser = new Map<string, number>(), perUserWeek = new Map<string, number>();
+    const active = new Set<string>();
+    let total = 0, prevTotal = 0, totalPoints = 0;
+
+    for (const l of logs) {
+      const d = toDate(l.timestamp);
+      if (!d) continue;
+      if (d >= weekStart) perUserWeek.set(l.userId, (perUserWeek.get(l.userId) ?? 0) + 1);
+      if (d < cutoff) { if (spanDays && d >= prevCutoff) prevTotal++; continue; }
+      const pts = creditedOf(l);
+      total++; totalPoints += pts; active.add(l.userId);
+      hourly[d.getHours()]++;
+      perUser.set(l.userId, (perUser.get(l.userId) ?? 0) + 1);
+      if (l.wasteType in waste) { waste[l.wasteType].value++; waste[l.wasteType].points += pts; }
+      const day = dayMap.get(format(d, 'yyyy-MM-dd'));
+      if (day) {
+        day.Disposals++; day.Points += pts; day.users.add(l.userId);
+        if (l.wasteType === 'Biodegradable') day.Bio++; else if (l.wasteType === 'Recyclable') day.Rec++; else if (l.wasteType === 'Residual') day.Res++;
+      }
+    }
+
+    const dailyTrend = dayKeys.map(k => {
+      const { users, ...rest } = dayMap.get(k)!;
+      return { date: format(new Date(`${k}T00:00:00`), days === 7 ? 'EEE' : 'MMM d'), ...rest, Users: users.size };
     });
-
-    // Daily trend
-    const days = timeRange === '7d' ? 7 : 30;
-    const dailyTrend = Array.from({ length: days }, (_, i) => {
-      const date = subDays(now, days - 1 - i);
-      const dayStr = format(date, 'yyyy-MM-dd');
-      const dl = filtered.filter(l => format(new Date(l.timestamp), 'yyyy-MM-dd') === dayStr);
-      return {
-        date: format(date, days === 7 ? 'EEE' : 'MMM d'),
-        Disposals: dl.length,
-        Points: dl.reduce((s, l) => s + l.pointsEarned, 0),
-        Users: new Set(dl.map(l => l.userId)).size,
-        Bio: dl.filter(l => l.wasteType === 'Biodegradable').length,
-        Rec: dl.filter(l => l.wasteType === 'Recyclable').length,
-        Res: dl.filter(l => l.wasteType === 'Residual').length,
-      };
-    });
-
-    // Hourly
-    const hourlyData = Array.from({ length: 24 }, (_, h) => {
-      const count = filtered.filter(l => getHours(new Date(l.timestamp)) === h).length;
-      return { hour: `${String(h).padStart(2, '0')}h`, count };
-    });
-    const peakHour = hourlyData.reduce((m, c) => c.count > m.count ? c : m, hourlyData[0]);
-
-    // Waste breakdown
-    const bio = filtered.filter(l => l.wasteType === 'Biodegradable');
-    const rec = filtered.filter(l => l.wasteType === 'Recyclable');
-    const res = filtered.filter(l => l.wasteType === 'Residual');
+    const hourlyData = hourly.map((count, h) => ({ hour: `${String(h).padStart(2, '0')}h`, count }));
+    const peakHour = hourlyData.reduce((m, c) => (c.count > m.count ? c : m), hourlyData[0]);
     const wasteBreakdown = [
-      { name: 'Biodegradable', value: bio.length, points: bio.reduce((s,l)=>s+l.pointsEarned,0), color: COLORS.bio },
-      { name: 'Recyclable',    value: rec.length, points: rec.reduce((s,l)=>s+l.pointsEarned,0), color: COLORS.blue },
-      { name: 'Residual',      value: res.length, points: res.reduce((s,l)=>s+l.pointsEarned,0), color: COLORS.red },
+      { name: 'Biodegradable', ...waste.Biodegradable, color: COLORS.bio },
+      { name: 'Recyclable',    ...waste.Recyclable,    color: COLORS.blue },
+      { name: 'Residual',      ...waste.Residual,      color: COLORS.red },
     ];
+    const topUsers = [...customers]
+      .sort((a, b) => lifetimeOf(b) - lifetimeOf(a))
+      .slice(0, 8)
+      .map(u => ({ ...u, disposals: perUser.get(u.uid) ?? 0, weekDisposals: perUserWeek.get(u.uid) ?? 0 }));
 
-    // Top users
-    const topUsers = customers
-      .map(u => ({
-        ...u,
-        disposals: filtered.filter(l => l.userId === u.uid).length,
-        weekDisposals: weekLogs.filter(l => l.userId === u.uid).length,
-      }))
-      .sort((a, b) => b.points - a.points)
-      .slice(0, 8);
-
-    // KPIs
-    const activeUsers = new Set(filtered.map(l => l.userId)).size;
-    const engagementRate = customers.length > 0 ? (activeUsers / customers.length) * 100 : 0;
-    const avgPerUser = activeUsers > 0 ? filtered.length / activeUsers : 0;
-    const redemptionRate = filtered.length > 0 ? (redemptions.length / filtered.length) * 100 : 0;
-    const totalPoints = filtered.reduce((s, l) => s + l.pointsEarned, 0);
-
-    // Growth
-    const growth = prev.length > 0 ? ((filtered.length - prev.length) / prev.length) * 100 : 0;
-
+    const activeUsers = active.size;
     return {
       dailyTrend, hourlyData, peakHour, wasteBreakdown, topUsers,
-      totalDisposals: filtered.length,
+      totalDisposals: total,
       totalPoints,
-      engagementRate,
-      avgPerUser,
-      redemptionRate,
-      growth,
+      engagementRate: customers.length > 0 ? (activeUsers / customers.length) * 100 : 0,
+      avgPerUser: activeUsers > 0 ? total / activeUsers : 0,
+      redemptionRate: total > 0 ? (redemptions.length / total) * 100 : 0,
+      growth: spanDays && prevTotal > 0 ? ((total - prevTotal) / prevTotal) * 100 : undefined,
       activeUsers,
     };
   }, [logs, customers, redemptions, timeRange]);
 
-  if (error) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="flex flex-col items-center gap-4 text-center">
-        <BarChart3 className="w-16 h-16 text-red-400" />
-        <p className="text-white font-bold text-lg">Failed to load analytics</p>
-        <p className="text-white/40 text-sm">Check your Firebase connection and try again.</p>
-        <button onClick={() => window.location.reload()} className="px-6 py-2 bg-[#B388FF]/10 border border-[#B388FF]/30 rounded-xl text-[#B388FF] font-bold hover:bg-[#B388FF]/20 transition">Retry</button>
-      </div>
-    </div>
-  );
+  if (error) return <LoadError what="analytics" />;
 
   if (loading) return <LoadingSkeleton />;
 
@@ -479,14 +451,14 @@ export default function AnalyticsPage() {
                     <div
                       className="h-1 rounded-full transition-all duration-700"
                       style={{
-                        width: `${data.topUsers[0]?.points > 0 ? (user.points / data.topUsers[0].points) * 100 : 0}%`,
+                        width: `${lifetimeOf(data.topUsers[0] ?? { points: 0 }) > 0 ? (lifetimeOf(user) / lifetimeOf(data.topUsers[0])) * 100 : 0}%`,
                         background: idx === 0 ? COLORS.orange : COLORS.purple,
                       }}
                     />
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className="text-[#FFAB40] font-bold text-lg">{user.points.toLocaleString()}</div>
+                  <div className="text-[#FFAB40] font-bold text-lg" title="lifetime points">{lifetimeOf(user).toLocaleString()}</div>
                   <div className="text-white/30 text-xs">pts</div>
                 </div>
               </div>

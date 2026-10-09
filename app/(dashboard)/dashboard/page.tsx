@@ -2,20 +2,27 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useState, useMemo } from 'react';
-import { Recycle, Users, Star, Receipt, TrendingUp, TrendingDown, Trash2, Clock, Zap, Activity, ArrowUpRight, ArrowDownRight, Target, Award, Leaf, BarChart3, Calendar, MapPin, AlertCircle, CheckCircle, Trophy, Flame } from 'lucide-react';
-import { AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, Radar } from 'recharts';
+import { useEffect, useState, useMemo, type ElementType } from 'react';
+import Link from 'next/link';
+import { Recycle, Users, Star, Receipt, TrendingUp, TrendingDown, Clock, Activity, ArrowUpRight, ArrowDownRight, Target, Award, Leaf, BarChart3, Trophy } from 'lucide-react';
+import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { subscribeToCustomers, subscribeToWasteLogs, subscribeToRedemptions } from '@/lib/firebaseService';
-import { UserModel, WasteLog, Redemption } from '@/lib/types';
+import { UserModel, WasteLog, Redemption, WasteType, lifetimeOf, creditedOf } from '@/lib/types';
+import { toDate } from '@/lib/dates';
 import { format, subDays, startOfDay, isToday, isYesterday, startOfWeek, startOfMonth } from 'date-fns';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
+import LoadError from '@/components/LoadError';
+
+type TimeRange = 'today' | 'week' | 'month' | 'all';
+const TIME_RANGES: TimeRange[] = ['today', 'week', 'month', 'all'];
+const WASTE_COLORS: Record<WasteType, string> = { Biodegradable: '#8BC34A', Recyclable: '#00B0FF', Residual: '#EF5350' };
 
 export default function DashboardPage() {
   const [customers, setCustomers] = useState<UserModel[]>([]);
   const [logs, setLogs] = useState<WasteLog[]>([]);
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
   const [ready, setReady] = useState({ customers: false, logs: false, redemptions: false });
-  const [timeRange, setTimeRange] = useState<'today' | 'week' | 'month' | 'all'>('week');
+  const [timeRange, setTimeRange] = useState<TimeRange>('week');
 
   useEffect(() => {
     const unsubCustomers = subscribeToCustomers(data => {
@@ -36,7 +43,8 @@ export default function DashboardPage() {
   const loading = !ready.customers || !ready.logs || !ready.redemptions;
   const error = useLoadTimeout(loading);
 
-  // Advanced Analytics Calculations
+  // One pass over the logs builds every number on this page (audit M-02: this used to filter all
+  // logs ~10 times plus once per hour, per day and per customer). Points are what was credited.
   const analytics = useMemo(() => {
     const now = new Date();
     const cutoff = timeRange === 'today'
@@ -46,108 +54,75 @@ export default function DashboardPage() {
         : timeRange === 'month'
           ? startOfMonth(now)
           : new Date(0);
+    const weekStart = startOfWeek(now);
 
-    const filteredLogs = logs.filter(l => new Date(l.timestamp) >= cutoff);
-    const todayLogs = logs.filter(l => isToday(new Date(l.timestamp)));
-    const yesterdayLogs = logs.filter(l => isYesterday(new Date(l.timestamp)));
-    const weekLogs = logs.filter(l => new Date(l.timestamp) >= startOfWeek(now));
+    const dayKeys = Array.from({ length: 14 }, (_, i) => format(subDays(now, 13 - i), 'yyyy-MM-dd'));
+    const days = new Map(dayKeys.map(k => [k, { disposals: 0, points: 0, users: new Set<string>() }]));
+    const hourly = new Array<number>(24).fill(0);
+    const typeCount: Record<WasteType, number> = { Biodegradable: 0, Recyclable: 0, Residual: 0 };
+    const typePoints: Record<WasteType, number> = { Biodegradable: 0, Recyclable: 0, Residual: 0 };
+    const disposalsInRange = new Map<string, number>();
+    const activeWeek = new Set<string>();
+    let todayCount = 0, yesterdayCount = 0, todayPoints = 0, yesterdayPoints = 0, inRange = 0;
 
-    const totalPoints = customers.reduce((sum, u) => sum + u.points, 0);
+    for (const l of logs) {
+      const d = toDate(l.timestamp);
+      if (!d) continue;
+      const pts = creditedOf(l);
+      if (isToday(d)) { todayCount++; todayPoints += pts; }
+      else if (isYesterday(d)) { yesterdayCount++; yesterdayPoints += pts; }
+      if (d >= weekStart) activeWeek.add(l.userId);
+      const day = days.get(format(d, 'yyyy-MM-dd'));
+      if (day) { day.disposals++; day.points += pts; day.users.add(l.userId); }
+      if (d >= cutoff) {
+        inRange++;
+        hourly[d.getHours()]++;
+        if (l.wasteType in typeCount) { typeCount[l.wasteType]++; typePoints[l.wasteType] += pts; }
+        disposalsInRange.set(l.userId, (disposalsInRange.get(l.userId) ?? 0) + 1);
+      }
+    }
+
+    const pct = (n: number, of: number) => (of > 0 ? (n / of) * 100 : 0);
+    const change = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : undefined);
+
+    const totalPoints = customers.reduce((sum, u) => sum + lifetimeOf(u), 0);
     const avgPointsPerUser = customers.length > 0 ? totalPoints / customers.length : 0;
-
-    const todayPoints = todayLogs.reduce((sum, l) => sum + l.pointsEarned, 0);
-    const yesterdayPoints = yesterdayLogs.reduce((sum, l) => sum + l.pointsEarned, 0);
-    const pointsGrowth = yesterdayPoints > 0 ? ((todayPoints - yesterdayPoints) / yesterdayPoints) * 100 : 0;
-
-    const activeUsers = new Set(weekLogs.map(l => l.userId)).size;
-    const userGrowthRate = customers.length > 0 ? (activeUsers / customers.length) * 100 : 0;
-
-    // Waste breakdown — filtered by time range
-    const bio = filteredLogs.filter(l => l.wasteType === 'Biodegradable').length;
-    const rec = filteredLogs.filter(l => l.wasteType === 'Recyclable').length;
-    const res = filteredLogs.filter(l => l.wasteType === 'Residual').length;
-
-    // Hourly distribution — filtered
-    const hourlyData = Array.from({ length: 24 }, (_, hour) => ({
-      hour: `${hour}:00`,
-      count: filteredLogs.filter(l => new Date(l.timestamp).getHours() === hour).length
-    }));
-
-    // Daily trend (last 14 days) — always last 14 days for the chart
-    const dailyTrend = Array.from({ length: 14 }, (_, i) => {
-      const date = subDays(now, 13 - i);
-      const dayLogs = logs.filter(l => format(new Date(l.timestamp), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'));
-      return {
-        date: format(date, 'MMM dd'),
-        disposals: dayLogs.length,
-        points: dayLogs.reduce((sum, l) => sum + l.pointsEarned, 0),
-        users: new Set(dayLogs.map(l => l.userId)).size
-      };
-    });
-
-    // Top performers — filtered by time range
-    const userStats = customers.map(user => ({
-      ...user,
-      disposals: filteredLogs.filter(l => l.userId === user.uid).length,
-      lastActive: filteredLogs.filter(l => l.userId === user.uid).sort((a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      )[0]?.timestamp
-    })).sort((a, b) => b.points - a.points).slice(0, 5);
-
-    // Waste type performance — filtered
-    const wastePerformance = [
-      { type: 'Biodegradable', count: bio, points: bio * 15, color: '#8BC34A', percentage: filteredLogs.length > 0 ? (bio / filteredLogs.length) * 100 : 0 },
-      { type: 'Recyclable', count: rec, points: rec * 10, color: '#00B0FF', percentage: filteredLogs.length > 0 ? (rec / filteredLogs.length) * 100 : 0 },
-      { type: 'Residual', count: res, points: res * 5, color: '#EF5350', percentage: filteredLogs.length > 0 ? (res / filteredLogs.length) * 100 : 0 }
-    ];
-
-    // Redemption stats
+    const bio = typeCount.Biodegradable, rec = typeCount.Recyclable, res = typeCount.Residual;
     const pendingRedemptions = redemptions.filter(r => r.status === 'pending').length;
-    const claimedRedemptions = redemptions.filter(r => r.status === 'claimed').length;
-    const redemptionRate = filteredLogs.length > 0 ? (redemptions.length / filteredLogs.length) * 100 : 0;
-
-    // Environmental impact — filtered
-    const co2Saved = filteredLogs.length * 0.5;
-    const treesEquivalent = Math.floor(co2Saved / 21);
-
-    const totalFilteredDisposals = filteredLogs.length;
-    const disposalChange = yesterdayLogs.length > 0 ? ((todayLogs.length - yesterdayLogs.length) / yesterdayLogs.length) * 100 : 0;
+    const co2Saved = inRange * 0.5;
 
     return {
-      totalDisposals: totalFilteredDisposals,
-      todayDisposals: todayLogs.length,
+      totalDisposals: inRange,
+      todayDisposals: todayCount,
       totalCustomers: customers.length,
-      activeUsers,
+      activeUsers: activeWeek.size,
+      activeRate: pct(activeWeek.size, customers.length),
       totalPoints,
       avgPointsPerUser,
-      pointsGrowth,
-      userGrowthRate,
+      pointsChange: change(todayPoints, yesterdayPoints),
+      disposalChange: change(todayCount, yesterdayCount),
       bio, rec, res,
-      hourlyData,
-      dailyTrend,
-      userStats,
-      wastePerformance,
+      hourlyData: hourly.map((count, hour) => ({ hour: `${hour}:00`, count })),
+      dailyTrend: dayKeys.map(k => {
+        const d = days.get(k)!;
+        return { date: format(new Date(`${k}T00:00:00`), 'MMM dd'), disposals: d.disposals, points: d.points, users: d.users.size };
+      }),
+      userStats: [...customers]
+        .sort((a, b) => lifetimeOf(b) - lifetimeOf(a))
+        .slice(0, 5)
+        .map(u => ({ ...u, disposals: disposalsInRange.get(u.uid) ?? 0 })),
+      wastePerformance: (['Biodegradable', 'Recyclable', 'Residual'] as WasteType[]).map(type => ({
+        type, count: typeCount[type], points: typePoints[type], color: WASTE_COLORS[type], percentage: pct(typeCount[type], inRange),
+      })),
       pendingRedemptions,
-      claimedRedemptions,
-      redemptionRate,
+      claimedRedemptions: redemptions.length - pendingRedemptions,
+      redemptionRate: pct(redemptions.length, inRange),
       co2Saved,
-      treesEquivalent,
-      disposalChange
+      treesEquivalent: Math.floor(co2Saved / 21),
     };
   }, [logs, customers, redemptions, timeRange]);
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <AlertCircle className="w-16 h-16 text-red-400" />
-          <p className="text-white font-bold text-lg">Failed to load dashboard</p>
-          <p className="text-white/40 text-sm">Check your Firebase connection and try again.</p>
-          <button onClick={() => window.location.reload()} className="px-6 py-2 bg-green/10 border border-green/30 rounded-xl text-green font-bold hover:bg-green/20 transition">Retry</button>
-        </div>
-      </div>
-    );
-  }
+  if (error) return <LoadError what="the dashboard" />;
 
   if (loading) {
     return (
@@ -169,7 +144,7 @@ export default function DashboardPage() {
       <div className="bg-gradient-to-br from-card via-card to-card/50 border border-border rounded-2xl p-6 hover:border-green/30 transition-all duration-500 group relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-r from-green/5 via-transparent to-blue/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
         <div className="relative z-10">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-green via-green to-dark-green flex items-center justify-center shadow-2xl shadow-green/30 group-hover:scale-110 group-hover:rotate-12 transition-all duration-500">
                 <Recycle className="w-7 h-7 text-black" />
@@ -197,11 +172,12 @@ export default function DashboardPage() {
           </div>
 
           {/* Quick Stats Bar */}
-          <div className="grid grid-cols-4 gap-4 mt-6">
-            <QuickStat label="Today" value={analytics.todayDisposals} change={analytics.disposalChange} />
-            <QuickStat label="Active Users" value={analytics.activeUsers} change={analytics.userGrowthRate} />
-            <QuickStat label="Avg Points/User" value={Math.round(analytics.avgPointsPerUser)} change={analytics.pointsGrowth} />
-            <QuickStat label="Redemption Rate" value={`${analytics.redemptionRate.toFixed(1)}%`} change={5.2} />
+          {/* Change badges compare today with yesterday and only appear when there is a yesterday to compare with. */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+            <QuickStat label="Scans today" value={analytics.todayDisposals} change={analytics.disposalChange} />
+            <QuickStat label="Active this week" value={`${analytics.activeUsers} (${analytics.activeRate.toFixed(0)}%)`} />
+            <QuickStat label="Avg lifetime pts/user" value={Math.round(analytics.avgPointsPerUser)} />
+            <QuickStat label="Points credited today" value={analytics.dailyTrend[13]?.points ?? 0} change={analytics.pointsChange} />
           </div>
         </div>
       </div>
@@ -222,15 +198,13 @@ export default function DashboardPage() {
           value={analytics.totalCustomers}
           subtitle={`${analytics.activeUsers} active this week`}
           color="#00B0FF"
-          trend={12.5}
         />
         <KPICard
           icon={Star}
-          label="Points Distributed"
+          label="Lifetime Points Earned"
           value={analytics.totalPoints}
-          subtitle={`Avg ${Math.round(analytics.avgPointsPerUser)}/user`}
+          subtitle={`Avg ${Math.round(analytics.avgPointsPerUser)}/customer`}
           color="#FFAB40"
-          trend={analytics.pointsGrowth}
         />
         <KPICard
           icon={Receipt}
@@ -238,7 +212,6 @@ export default function DashboardPage() {
           value={redemptions.length}
           subtitle={`${analytics.pendingRedemptions} pending`}
           color="#B388FF"
-          trend={8.3}
         />
       </div>
 
@@ -255,10 +228,11 @@ export default function DashboardPage() {
               <p className="text-white/40 text-sm mt-1">Disposals, Points & Active Users</p>
             </div>
             <div className="flex gap-2">
-              {['today', 'week', 'month', 'all'].map(range => (
+              {TIME_RANGES.map(range => (
                 <button
                   key={range}
-                  onClick={() => setTimeRange(range as any)}
+                  aria-pressed={timeRange === range}
+                  onClick={() => setTimeRange(range)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                     timeRange === range
                       ? 'bg-green text-black'
@@ -398,9 +372,9 @@ export default function DashboardPage() {
               <Award className="w-5 h-5 text-purple" />
               Top Performers
             </h3>
-            <a href="/leaderboard" className="text-xs text-white/40 hover:text-yellow-400 transition-colors flex items-center gap-1">
+            <Link href="/leaderboard" className="text-xs text-white/40 hover:text-yellow-400 transition-colors flex items-center gap-1">
               <Trophy className="w-3 h-3" />Full Leaderboard
-            </a>
+            </Link>
           </div>
           <div className="space-y-3">
             {analytics.userStats.map((user, idx) => (
@@ -417,25 +391,27 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-orange font-bold">{user.points}</div>
-                  <div className="text-white/40 text-xs">points</div>
+                  <div className="text-orange font-bold">{lifetimeOf(user).toLocaleString()}</div>
+                  <div className="text-white/40 text-xs">lifetime pts</div>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* System Health */}
+        {/* Operations — real numbers only (the old "System Health" bars were hard-coded, audit H-09) */}
         <div className="bg-card border border-border rounded-2xl p-6 hover:border-blue/20 transition-all duration-300">
           <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
             <Activity className="w-5 h-5 text-blue" />
-            System Health
+            Operations
           </h3>
           <div className="space-y-4">
-            <HealthMetric label="Database Status" status="Operational" color="#00E676" percentage={100} />
-            <HealthMetric label="API Response Time" status="Fast" color="#00E676" percentage={95} />
-            <HealthMetric label="Active Connections" status={`${analytics.activeUsers} users`} color="#00B0FF" percentage={85} />
-            <HealthMetric label="Pending Tasks" status={`${analytics.pendingRedemptions} items`} color="#FFAB40" percentage={70} />
+            <HealthMetric label="Customers active this week" status={`${analytics.activeUsers} of ${analytics.totalCustomers}`} color="#00B0FF" percentage={analytics.activeRate} />
+            <HealthMetric label="Redemptions waiting to be handed out" status={`${analytics.pendingRedemptions} pending`} color="#FFAB40"
+              percentage={redemptions.length > 0 ? (analytics.pendingRedemptions / redemptions.length) * 100 : 0} />
+            <HealthMetric label="Redemptions handed out" status={`${analytics.claimedRedemptions} claimed`} color="#00E676"
+              percentage={redemptions.length > 0 ? (analytics.claimedRedemptions / redemptions.length) * 100 : 0} />
+            <p className="text-white/30 text-xs">Data connection: live (Firestore listeners). Kiosk status: see Bin Management.</p>
           </div>
         </div>
       </div>
@@ -444,24 +420,27 @@ export default function DashboardPage() {
 }
 
 // Components
-function QuickStat({ label, value, change }: { label: string; value: number | string; change: number }) {
-  const isPositive = change >= 0;
+function QuickStat({ label, value, change }: { label: string; value: number | string; change?: number }) {
+  const isPositive = (change ?? 0) >= 0;
   return (
     <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl hover:bg-white/10 transition-all">
       <div>
         <div className="text-white/50 text-xs mb-1">{label}</div>
         <div className="text-white font-bold text-lg">{value}</div>
       </div>
-      <div className={`flex items-center gap-1 text-xs font-semibold ${isPositive ? 'text-green' : 'text-red'}`}>
-        {isPositive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-        {Math.abs(change).toFixed(1)}%
-      </div>
+      {change !== undefined && (
+        <div className={`flex items-center gap-1 text-xs font-semibold ${isPositive ? 'text-green' : 'text-red'}`} title="vs yesterday">
+          {isPositive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+          {Math.abs(change).toFixed(1)}%
+        </div>
+      )}
     </div>
   );
 }
 
-function KPICard({ icon: Icon, label, value, subtitle, color, trend }: any) {
-  const isPositive = trend >= 0;
+interface KPICardProps { icon: ElementType; label: string; value: number | string; subtitle: string; color: string; trend?: number }
+function KPICard({ icon: Icon, label, value, subtitle, color, trend }: KPICardProps) {
+  const isPositive = (trend ?? 0) >= 0;
   return (
     <div className="bg-card border border-border rounded-2xl p-5 hover:scale-105 hover:shadow-2xl transition-all duration-300 group cursor-pointer relative overflow-hidden">
       <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: `linear-gradient(135deg, ${color}10, transparent)` }} />
@@ -470,10 +449,12 @@ function KPICard({ icon: Icon, label, value, subtitle, color, trend }: any) {
           <div className="w-12 h-12 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300" style={{ backgroundColor: `${color}20` }}>
             <Icon className="w-6 h-6" style={{ color }} />
           </div>
-          <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold ${isPositive ? 'bg-green/20 text-green' : 'bg-red/20 text-red'}`}>
-            {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-            {Math.abs(trend).toFixed(1)}%
-          </div>
+          {trend !== undefined && (
+            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold ${isPositive ? 'bg-green/20 text-green' : 'bg-red/20 text-red'}`} title="today vs yesterday">
+              {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+              {Math.abs(trend).toFixed(1)}%
+            </div>
+          )}
         </div>
         <div className="text-3xl font-bold text-white mb-1">{typeof value === 'number' ? value.toLocaleString() : value}</div>
         <div className="text-white/40 text-xs">{label}</div>
@@ -483,7 +464,7 @@ function KPICard({ icon: Icon, label, value, subtitle, color, trend }: any) {
   );
 }
 
-function ImpactMetric({ icon: Icon, label, value, color, description }: any) {
+function ImpactMetric({ icon: Icon, label, value, color, description }: { icon: ElementType; label: string; value: string; color: string; description: string }) {
   return (
     <div className="flex items-start gap-4">
       <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${color}20` }}>
@@ -498,7 +479,7 @@ function ImpactMetric({ icon: Icon, label, value, color, description }: any) {
   );
 }
 
-function HealthMetric({ label, status, color, percentage }: any) {
+function HealthMetric({ label, status, color, percentage }: { label: string; status: string; color: string; percentage: number }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-2">

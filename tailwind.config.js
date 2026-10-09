@@ -21,7 +21,7 @@ module.exports = {
         res: '#EF5350',
       },
       fontFamily: {
-        sans: ['Inter', 'Roboto', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-inter)', 'Roboto', 'system-ui', 'sans-serif'],
       },
       borderRadius: {
         card: '20px',

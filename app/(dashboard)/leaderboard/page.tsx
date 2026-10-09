@@ -2,12 +2,14 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useState } from 'react';
-import { Trophy, Medal, Star, Recycle, Flame, TrendingUp, Crown, Users } from 'lucide-react';
-import { subscribeToLeaderboard } from '@/lib/firebaseService';
-import { UserModel } from '@/lib/types';
+import { useEffect, useState, type ElementType } from 'react';
+import { Trophy, Star, Recycle, Flame, Crown, Users } from 'lucide-react';
+import { subscribeToLeaderboard, LEADERBOARD_SIZE } from '@/lib/firebaseService';
+import { UserModel, lifetimeOf } from '@/lib/types';
 import { getAvatarColor } from '@/lib/utils';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
+import StatPill from '@/components/StatPill';
+import LoadError from '@/components/LoadError';
 
 const BADGE_DEFS = [
   { id: 'first_scan',  label: 'First Scan',   icon: '🌱' },
@@ -43,25 +45,18 @@ export default function LeaderboardPage() {
     return () => { unsub(); };
   }, []);
 
+  // Podium only with 3+ customers; the list then starts at #4 instead of repeating the podium.
+  // With 1-2 customers there is no podium and the list shows everyone (audit M-07).
+  const showPodium = users.length >= 3;
   const top3 = users.slice(0, 3);
-  const rest = users.slice(3);
+  const listed = showPodium ? users.slice(3) : users;
+  const listOffset = showPodium ? 3 : 0;
 
-  const totalPoints = users.reduce((s, u) => s + u.points, 0);
+  const totalPoints = users.reduce((s, u) => s + lifetimeOf(u), 0);
   const totalScans  = users.reduce((s, u) => s + (u.scanCount ?? 0), 0);
   const topStreak   = users.reduce((m, u) => Math.max(m, u.streak ?? 0), 0);
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <Trophy className="w-16 h-16 text-red-400" />
-          <p className="text-white font-bold text-lg">Failed to load leaderboard</p>
-          <p className="text-white/40 text-sm">Check your Firebase connection and try again.</p>
-          <button onClick={() => window.location.reload()} className="px-6 py-2 bg-yellow-400/10 border border-yellow-400/30 rounded-xl text-yellow-400 font-bold hover:bg-yellow-400/20 transition">Retry</button>
-        </div>
-      </div>
-    );
-  }
+  if (error) return <LoadError what="the leaderboard" />;
 
   if (loading) {
     return (
@@ -89,11 +84,11 @@ export default function LeaderboardPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-white mb-1">Leaderboard</h1>
-              <p className="text-white/50 text-sm">{users.length} eco warriors ranked by points</p>
+              <p className="text-white/50 text-sm">Top {users.length} of up to {LEADERBOARD_SIZE} customers, ranked by lifetime points</p>
             </div>
           </div>
-          <div className="flex gap-4">
-            <StatPill icon={Star} label="Total Points" value={totalPoints.toLocaleString()} color="#FFAB40" />
+          <div className="flex flex-wrap gap-4">
+            <StatPill icon={Star} label="Lifetime Points" value={totalPoints.toLocaleString()} color="#FFAB40" />
             <StatPill icon={Recycle} label="Total Scans" value={totalScans.toLocaleString()} color="#00E676" />
             <StatPill icon={Flame} label="Top Streak" value={`${topStreak}d`} color="#FF6D00" />
           </div>
@@ -101,7 +96,7 @@ export default function LeaderboardPage() {
       </div>
 
       {/* Podium */}
-      {top3.length >= 3 && (
+      {showPodium && (
         <div className="bg-gradient-to-b from-yellow-400/10 via-card to-card border border-yellow-400/20 rounded-2xl p-8">
           <div className="flex items-end justify-center gap-4 mb-2">
             {/* 2nd */}
@@ -115,16 +110,16 @@ export default function LeaderboardPage() {
       )}
 
       {/* Rest of list */}
-      {rest.length > 0 && (
+      {listed.length > 0 && (
         <div className="bg-card border border-border rounded-2xl overflow-hidden">
           <div className="p-5 border-b border-border flex items-center gap-2">
             <Users className="w-5 h-5 text-white/40" />
-            <span className="text-white font-bold">All Rankings</span>
-            <span className="text-white/40 text-sm ml-1">({users.length} users)</span>
+            <span className="text-white font-bold">{showPodium ? 'Other Rankings' : 'All Rankings'}</span>
+            <span className="text-white/40 text-sm ml-1">({listed.length} users)</span>
           </div>
           <div className="divide-y divide-border">
-            {users.map((user, i) => (
-              <LeaderRow key={user.uid} user={user} rank={i + 1} onClick={() => setSelected(user)} />
+            {listed.map((user, i) => (
+              <LeaderRow key={user.uid} user={user} rank={i + 1 + listOffset} onClick={() => setSelected(user)} />
             ))}
           </div>
         </div>
@@ -136,21 +131,11 @@ export default function LeaderboardPage() {
   );
 }
 
-function StatPill({ icon: Icon, label, value, color }: any) {
-  return (
-    <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl border border-white/10">
-      <Icon className="w-4 h-4" style={{ color }} />
-      <div>
-        <div className="text-white font-bold text-sm">{value}</div>
-        <div className="text-white/40 text-xs">{label}</div>
-      </div>
-    </div>
-  );
+interface PodiumCardProps {
+  user: UserModel; rank: number; height: string; medal: string; color: string; crown?: boolean; onClick: () => void;
 }
-
-function PodiumCard({ user, rank, height, medal, color, crown = false, onClick }: any) {
+function PodiumCard({ user, rank, height, medal, color, crown = false, onClick }: PodiumCardProps) {
   const colors = getAvatarColor(user.username);
-  const tier = getRankTier(user.points);
   return (
     <div className="flex flex-col items-center gap-2 cursor-pointer group" onClick={onClick}>
       {crown && <Crown className="w-6 h-6 text-yellow-400 animate-bounce" />}
@@ -163,7 +148,7 @@ function PodiumCard({ user, rank, height, medal, color, crown = false, onClick }
       </div>
       <div className="text-center">
         <div className="text-white font-bold text-sm max-w-[90px] truncate">{user.username}</div>
-        <div className="font-bold text-sm" style={{ color }}>{user.points.toLocaleString()} pts</div>
+        <div className="font-bold text-sm" style={{ color }}>{lifetimeOf(user).toLocaleString()} pts</div>
         {(user.badges?.length ?? 0) > 0 && (
           <div className="text-white/40 text-xs">{user.badges!.length} badges</div>
         )}
@@ -178,7 +163,7 @@ function PodiumCard({ user, rank, height, medal, color, crown = false, onClick }
 
 function LeaderRow({ user, rank, onClick }: { user: UserModel; rank: number; onClick: () => void }) {
   const colors = getAvatarColor(user.username);
-  const tier = getRankTier(user.points);
+  const tier = getRankTier(lifetimeOf(user));
   const medals: Record<number, string> = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
   return (
@@ -221,8 +206,8 @@ function LeaderRow({ user, rank, onClick }: { user: UserModel; rank: number; onC
         </div>
       </div>
       <div className="text-right shrink-0">
-        <div className="text-yellow-400 font-bold text-base">{user.points.toLocaleString()}</div>
-        <div className="text-white/40 text-xs">points</div>
+        <div className="text-yellow-400 font-bold text-base">{lifetimeOf(user).toLocaleString()}</div>
+        <div className="text-white/40 text-xs">lifetime pts</div>
       </div>
     </div>
   );
@@ -230,7 +215,7 @@ function LeaderRow({ user, rank, onClick }: { user: UserModel; rank: number; onC
 
 function UserDetailDrawer({ user, onClose }: { user: UserModel; onClose: () => void }) {
   const colors = getAvatarColor(user.username);
-  const tier = getRankTier(user.points);
+  const tier = getRankTier(lifetimeOf(user));
   const earnedBadges = BADGE_DEFS.filter(b => user.badges?.includes(b.id));
   const lockedBadges = BADGE_DEFS.filter(b => !user.badges?.includes(b.id));
 
@@ -262,8 +247,9 @@ function UserDetailDrawer({ user, onClose }: { user: UserModel; onClose: () => v
 
         <div className="p-6 space-y-6">
           {/* Stats */}
-          <div className="grid grid-cols-3 gap-3">
-            <MiniStat icon={Star} label="Points" value={user.points} color="#FFAB40" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <MiniStat icon={Star} label="Lifetime" value={lifetimeOf(user)} color="#FFAB40" />
+            <MiniStat icon={Star} label="Balance" value={user.points ?? 0} color="#FFD54F" />
             <MiniStat icon={Recycle} label="Scans" value={user.scanCount ?? 0} color="#00E676" />
             <MiniStat icon={Flame} label="Streak" value={`${user.streak ?? 0}d`} color="#FF6D00" />
           </div>
@@ -305,7 +291,7 @@ function UserDetailDrawer({ user, onClose }: { user: UserModel; onClose: () => v
   );
 }
 
-function MiniStat({ icon: Icon, label, value, color }: any) {
+function MiniStat({ icon: Icon, label, value, color }: { icon: ElementType; label: string; value: number | string; color: string }) {
   return (
     <div className="rounded-xl p-3 text-center border hover:scale-105 transition-transform"
       style={{ backgroundColor: `${color}14`, borderColor: `${color}33` }}>

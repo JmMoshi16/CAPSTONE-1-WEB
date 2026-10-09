@@ -6,8 +6,15 @@ import { useEffect, useState } from 'react';
 import { Gift, Plus, Edit2, Trash2, Check, Coffee, Utensils, Tag as TagIcon, HourglassIcon, CheckCircle, Download, LucideIcon } from 'lucide-react';
 import { subscribeToRewards, subscribeToRedemptions, addReward, updateReward, deleteReward, markRedemptionClaimed, exportToCSV } from '@/lib/firebaseService';
 import { Reward, Redemption, RewardCategory } from '@/lib/types';
+import { fmtDate, isOlderThanDays } from '@/lib/dates';
+import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import ConfirmModal from '@/components/ConfirmModal';
+import LoadError from '@/components/LoadError';
 import toast from 'react-hot-toast';
+
+// Same rule the phone app shows customers: a reward code is valid for 7 days.
+const REDEMPTION_VALID_DAYS = 7;
+const isExpired = (r: Redemption) => r.status === 'pending' && isOlderThanDays(r.redeemedAt, REDEMPTION_VALID_DAYS);
 
 const CATEGORY_ICONS: Record<RewardCategory, LucideIcon> = {
   Coffee, Food: Utensils, Discount: TagIcon, Other: Gift,
@@ -20,6 +27,7 @@ export default function RewardsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingReward, setEditingReward] = useState<Reward | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Reward | null>(null);
+  const [claimTarget, setClaimTarget] = useState<Redemption | null>(null);
   const [ready, setReady] = useState({ rewards: false, redemptions: false });
 
   useEffect(() => {
@@ -29,18 +37,38 @@ export default function RewardsPage() {
   }, []);
 
   const loading = !ready.rewards || !ready.redemptions;
-  const pendingCount = redemptions.filter(r => r.status === 'pending').length;
+  const error = useLoadTimeout(loading);
+  const pendingCount = redemptions.filter(r => r.status === 'pending' && !isExpired(r)).length;
 
+  // Every mutation reports failure instead of failing silently (audit M-09).
   const handleConfirmDelete = async () => {
     if (!deleteTarget?.id) return;
-    await deleteReward(deleteTarget.id);
-    toast.success('Reward deleted');
-    setDeleteTarget(null);
+    try {
+      await deleteReward(deleteTarget.id);
+      toast.success('Reward deleted');
+      setDeleteTarget(null);
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not delete the reward. Check the connection and try again.');
+    }
   };
 
-  const handleMarkClaimed = async (redemption: Redemption) => {
-    await markRedemptionClaimed(redemption.id!);
-    toast.success(`"${redemption.rewardTitle}" marked as claimed`);
+  const handleConfirmClaimed = async () => {
+    const r = claimTarget;
+    if (!r?.id) return;
+    if (isExpired(r)) {
+      toast.error('This code has expired (older than 7 days) and cannot be handed out.');
+      setClaimTarget(null);
+      return;
+    }
+    try {
+      await markRedemptionClaimed(r.id);
+      toast.success(`"${r.rewardTitle}" marked as claimed`);
+      setClaimTarget(null);
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not mark it as claimed. Check the connection and try again.');
+    }
   };
 
   const handleExport = () => {
@@ -51,11 +79,14 @@ export default function RewardsPage() {
         'Points Used': r.pointsUsed,
         Code: r.redemptionCode,
         Status: r.status,
-        Date: new Date(r.redeemedAt).toLocaleDateString(),
+        Date: fmtDate(r.redeemedAt, 'yyyy-MM-dd', ''),
+        Expired: isExpired(r) ? 'yes' : '',
       })),
       'ecoreward-redemptions.csv'
     );
   };
+
+  if (error) return <LoadError what="rewards" />;
 
   if (loading) {
     return (
@@ -122,7 +153,7 @@ export default function RewardsPage() {
           </div>
         )
       ) : (
-        <RedemptionsTab redemptions={redemptions} onMarkClaimed={handleMarkClaimed} />
+        <RedemptionsTab redemptions={redemptions} onMarkClaimed={setClaimTarget} />
       )}
 
       {showForm && (
@@ -139,6 +170,17 @@ export default function RewardsPage() {
           confirmLabel="Delete"
           onConfirm={handleConfirmDelete}
           onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+
+      {claimTarget && (
+        <ConfirmModal
+          title="Hand out reward"
+          message={'Give ' + claimTarget.rewardTitle + ' to the customer showing code ' + claimTarget.redemptionCode + '? This marks the code as used.'}
+          confirmLabel="Mark as claimed"
+          danger={false}
+          onConfirm={handleConfirmClaimed}
+          onCancel={() => setClaimTarget(null)}
         />
       )}
     </div>
@@ -229,7 +271,8 @@ function RedemptionsTab({ redemptions, onMarkClaimed }: RedemptionsTabProps) {
 
 interface RedemptionCardProps { redemption: Redemption; onMarkClaimed?: (r: Redemption) => void }
 function RedemptionCard({ redemption, onMarkClaimed }: RedemptionCardProps) {
-  const isPending = redemption.status === 'pending';
+  const expired = isExpired(redemption);
+  const isPending = redemption.status === 'pending' && !expired;
   return (
     <div className={`bg-card border rounded-card p-4 ${isPending ? 'border-orange/30' : 'border-border'}`}>
       <div className="flex items-center gap-3 mb-3">
@@ -249,7 +292,10 @@ function RedemptionCard({ redemption, onMarkClaimed }: RedemptionCardProps) {
             <span>Code:</span>
             <span className="text-white font-bold tracking-wider">{redemption.redemptionCode}</span>
           </div>
-          <span className="text-white/30 text-xs">{new Date(redemption.redeemedAt).toLocaleDateString()}</span>
+          <span className="text-white/30 text-xs">
+            {fmtDate(redemption.redeemedAt, 'MMM d, yyyy')}
+            {expired && <span className="ml-2 px-1.5 py-0.5 rounded bg-red-500/10 text-red-500 font-bold">Expired</span>}
+          </span>
         </div>
       </div>
       {isPending && onMarkClaimed && (

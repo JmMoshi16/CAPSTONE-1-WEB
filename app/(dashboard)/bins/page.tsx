@@ -7,6 +7,7 @@ import { Trash2, Wifi, WifiOff, Clock, AlertTriangle, CheckCircle, Thermometer, 
 import { subscribeToBins } from '@/lib/firebaseService';
 import { BinStatus } from '@/lib/types';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
+import { fmtDate } from '@/lib/dates';
 
 export default function BinsPage() {
   const [bins, setBins] = useState<BinStatus[]>([]);
@@ -144,7 +145,7 @@ function BinCard({ bin }: { bin: BinStatus }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-white/40 text-xs">
           <Clock className="w-3 h-3" />
-          {new Date(bin.lastUpdated).toLocaleTimeString()}
+          {fmtDate(bin.lastUpdated, 'h:mm:ss a', 'no data yet')}
         </div>
         <div className="flex items-center gap-3">
           {bin.temperature !== undefined && (

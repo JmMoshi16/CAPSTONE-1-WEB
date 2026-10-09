@@ -8,6 +8,7 @@ import { subscribeToCustomers } from '@/lib/firebaseService';
 import { UserModel } from '@/lib/types';
 import { getAvatarColor } from '@/lib/utils';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
+import StatPill from '@/components/StatPill';
 
 const BADGE_DEFS = [
   { id: 'first_scan', label: 'First Scan',   desc: 'Completed first scan',       icon: '🌱', req: 'scans',  value: 1,   color: '#8BC34A' },
@@ -106,7 +107,7 @@ export default function BadgesPage() {
       {/* Badge grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {stats.badgeCounts.map(b => (
-          <BadgeCard key={b.id} badge={b} total={customers.length} />
+          <BadgeCard key={b.id} badge={b} />
         ))}
       </div>
 
@@ -189,7 +190,7 @@ export default function BadgesPage() {
   );
 }
 
-function BadgeCard({ badge, total }: { badge: typeof BADGE_DEFS[0] & { count: number; pct: number }; total: number }) {
+function BadgeCard({ badge }: { badge: typeof BADGE_DEFS[0] & { count: number; pct: number } }) {
   const unlocked = badge.count > 0;
   return (
     <div
@@ -223,14 +224,3 @@ function BadgeCard({ badge, total }: { badge: typeof BADGE_DEFS[0] & { count: nu
   );
 }
 
-function StatPill({ icon: Icon, label, value, color }: any) {
-  return (
-    <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl border border-white/10">
-      <Icon className="w-4 h-4" style={{ color }} />
-      <div>
-        <div className="text-white font-bold text-sm">{value}</div>
-        <div className="text-white/40 text-xs">{label}</div>
-      </div>
-    </div>
-  );
-}

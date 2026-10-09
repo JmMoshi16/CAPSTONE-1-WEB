@@ -5,7 +5,8 @@ export interface UserModel {
   username: string;
   email: string;
   role: 'customer' | 'admin';
-  points: number;
+  points: number;          // spendable balance
+  lifetimePoints?: number; // everything ever earned; rank and leaderboard use this (missing on older docs)
   createdAt: string;
   scanCount?: number;
   streak?: number;
@@ -13,14 +14,21 @@ export interface UserModel {
   badges?: string[];
 }
 
+export const lifetimeOf = (u: Pick<UserModel, 'points' | 'lifetimePoints'>): number =>
+  typeof u.lifetimePoints === 'number' ? u.lifetimePoints : u.points ?? 0;
+
 export interface WasteLog {
   id?: string;
   userId: string;
   wasteType: 'Biodegradable' | 'Recyclable' | 'Residual';
-  pointsEarned: number;
+  pointsEarned: number;    // base points for the category
+  pointsAwarded?: number;  // credited incl. streak bonus (Phase 5); use creditedOf()
   timestamp: string;
   binId: string;
 }
+
+export const creditedOf = (l: Pick<WasteLog, 'pointsEarned' | 'pointsAwarded'>): number =>
+  typeof l.pointsAwarded === 'number' ? l.pointsAwarded : l.pointsEarned ?? 0;
 
 export interface Reward {
   id?: string;

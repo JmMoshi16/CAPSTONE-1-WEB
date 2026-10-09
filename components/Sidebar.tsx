@@ -16,7 +16,7 @@ const NAV_ITEMS = [
   { href: '/bins', icon: Trash2, label: 'Bin Management' },
   { href: '/users', icon: Users, label: 'Users' },
   { href: '/rewards', icon: Gift, label: 'Rewards & Redemptions' },
-  { href: '/qr', icon: History, label: 'Scan History' },
+  { href: '/scan-history', icon: History, label: 'Scan History' },
   { href: '/manual-claim', icon: ClipboardCheck, label: 'Manual Claim' },
   { href: '/leaderboard', icon: Trophy, label: 'Leaderboard' },
   { href: '/badges', icon: Award, label: 'Badges' },
@@ -63,6 +63,7 @@ export default function Sidebar() {
             <Link
               key={href}
               href={href}
+              aria-current={isActive ? 'page' : undefined}
               onClick={() => setMobileOpen(false)}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl transition ${
                 isActive ? 'bg-green/10 text-green font-bold' : 'text-white/40 hover:text-white hover:bg-white/5'
@@ -103,7 +104,7 @@ export default function Sidebar() {
           </div>
           <span className="text-white font-bold text-sm">ECOReward Admin</span>
         </div>
-        <button onClick={() => setMobileOpen(true)} className="text-white/60 hover:text-white transition">
+        <button onClick={() => setMobileOpen(true)} aria-label="Open menu" className="text-white/60 hover:text-white transition">
           <Menu className="w-6 h-6" />
         </button>
       </div>
@@ -115,6 +116,7 @@ export default function Sidebar() {
           <div className="relative w-64 bg-card border-r border-border h-full z-50">
             <button
               onClick={() => setMobileOpen(false)}
+              aria-label="Close menu"
               className="absolute top-4 right-4 text-white/40 hover:text-white transition"
             >
               <X className="w-5 h-5" />

@@ -2,14 +2,18 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useState, useMemo } from 'react';
-import { Users as UsersIcon, Search, Star, Recycle, TrendingUp, ChevronRight, Download, Filter, Calendar, Award, Activity, Clock, Target, Zap, BarChart3, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { useEffect, useState, useMemo, type ElementType } from 'react';
+import { Users as UsersIcon, Search, Star, Recycle, TrendingUp, ChevronRight, Download, Filter, Award, Activity, Clock, Target, Zap, BarChart3, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { subscribeToCustomers, subscribeToWasteLogs, exportToCSV } from '@/lib/firebaseService';
-import { UserModel, WasteLog, SortOption } from '@/lib/types';
+import { UserModel, WasteLog, SortOption, lifetimeOf, creditedOf } from '@/lib/types';
 import { getRankBadge, getAvatarColor } from '@/lib/utils';
+import { fmtDate, toDate, dayKey } from '@/lib/dates';
 import { format, isToday, isYesterday, subDays, startOfWeek } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
+import LoadError from '@/components/LoadError';
+
+const NO_LOGS: WasteLog[] = [];
 
 export default function UsersPage() {
   const [customers, setCustomers] = useState<UserModel[]>([]);
@@ -29,31 +33,44 @@ export default function UsersPage() {
   const loading = !ready.customers || !ready.logs;
   const error = useLoadTimeout(loading);
 
-  const analytics = useMemo(() => {
-    const totalPoints = customers.reduce((sum, u) => sum + u.points, 0);
-    const avgPoints = customers.length > 0 ? totalPoints / customers.length : 0;
-    
-    const activeToday = new Set(logs.filter(l => isToday(new Date(l.timestamp))).map(l => l.userId)).size;
-    const activeYesterday = new Set(logs.filter(l => isYesterday(new Date(l.timestamp))).map(l => l.userId)).size;
-    const activeWeek = new Set(logs.filter(l => new Date(l.timestamp) >= startOfWeek(new Date())).map(l => l.userId)).size;
-    
-    const userGrowth = activeYesterday > 0 ? ((activeToday - activeYesterday) / activeYesterday) * 100 : 0;
-    
-    const rankDistribution = {
-      platinum: customers.filter(u => u.points >= 500).length,
-      gold: customers.filter(u => u.points >= 200 && u.points < 500).length,
-      silver: customers.filter(u => u.points >= 50 && u.points < 200).length,
-      bronze: customers.filter(u => u.points < 50).length,
-    };
+  // One pass over the logs builds every per-user / per-day number (audit M-02: this used to
+  // re-filter all logs for every user, and again inside every sort comparison).
+  const index = useMemo(() => {
+    const byUser = new Map<string, WasteLog[]>();
+    const weekly = new Map<string, number>();
+    const activeToday = new Set<string>(), activeYesterday = new Set<string>(), activeWeek = new Set<string>();
+    const weekStart = startOfWeek(new Date());
+    for (const l of logs) {
+      const list = byUser.get(l.userId);
+      if (list) list.push(l); else byUser.set(l.userId, [l]);
+      const d = toDate(l.timestamp);
+      if (!d) continue;
+      if (isToday(d)) activeToday.add(l.userId);
+      else if (isYesterday(d)) activeYesterday.add(l.userId);
+      if (d >= weekStart) { activeWeek.add(l.userId); weekly.set(l.userId, (weekly.get(l.userId) ?? 0) + 1); }
+    }
+    return { byUser, weekly, activeToday: activeToday.size, activeYesterday: activeYesterday.size, activeWeek: activeWeek.size };
+  }, [logs]);
 
-    const topPerformers = customers
-      .map(u => ({
-        ...u,
-        disposals: logs.filter(l => l.userId === u.uid).length,
-        weeklyDisposals: logs.filter(l => l.userId === u.uid && new Date(l.timestamp) >= startOfWeek(new Date())).length
-      }))
-      .sort((a, b) => b.points - a.points)
-      .slice(0, 3);
+  const logsOf = (uid: string) => index.byUser.get(uid) ?? NO_LOGS;
+
+  const analytics = useMemo(() => {
+    // Rank tiers use lifetime points, like the phone app (audit M-11); the balance is shown alongside.
+    const totalPoints = customers.reduce((sum, u) => sum + lifetimeOf(u), 0);
+    const avgPoints = customers.length > 0 ? totalPoints / customers.length : 0;
+    const { activeToday, activeYesterday, activeWeek } = index;
+    const userGrowth = activeYesterday > 0 ? ((activeToday - activeYesterday) / activeYesterday) * 100 : 0;
+
+    const rankDistribution = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
+    for (const u of customers) {
+      const key = getRankBadge(lifetimeOf(u)).label.toLowerCase() as keyof typeof rankDistribution;
+      rankDistribution[key]++;
+    }
+
+    const topPerformers = [...customers]
+      .sort((a, b) => lifetimeOf(b) - lifetimeOf(a))
+      .slice(0, 3)
+      .map(u => ({ ...u, disposals: index.byUser.get(u.uid)?.length ?? 0, weeklyDisposals: index.weekly.get(u.uid) ?? 0 }));
 
     return {
       totalPoints,
@@ -65,53 +82,41 @@ export default function UsersPage() {
       topPerformers,
       engagementRate: customers.length > 0 ? (activeWeek / customers.length) * 100 : 0
     };
-  }, [customers, logs]);
-
-  const getUserLogs = (uid: string) => logs.filter(l => l.userId === uid);
+  }, [customers, index]);
 
   const filteredUsers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const count = (uid: string) => index.byUser.get(uid)?.length ?? 0;
     return customers
       .filter(u => {
-        const matchesSearch = u.username.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
+        const matchesSearch = !q || (u.username ?? '').toLowerCase().includes(q) || (u.email ?? '').toLowerCase().includes(q);
         if (!matchesSearch) return false;
-        
         if (filterRank === 'all') return true;
-        const rank = getRankBadge(u.points).label.toLowerCase();
-        return rank === filterRank;
+        return getRankBadge(lifetimeOf(u)).label.toLowerCase() === filterRank;
       })
       .sort((a, b) => {
-        if (sortBy === 'points') return b.points - a.points;
-        if (sortBy === 'disposals') return getUserLogs(b.uid).length - getUserLogs(a.uid).length;
-        return a.username.localeCompare(b.username);
+        if (sortBy === 'points') return lifetimeOf(b) - lifetimeOf(a);
+        if (sortBy === 'disposals') return count(b.uid) - count(a.uid);
+        return (a.username ?? '').localeCompare(b.username ?? '');
       });
-  }, [customers, search, sortBy, filterRank, logs]);
+  }, [customers, search, sortBy, filterRank, index]);
 
   const handleExport = () => {
     exportToCSV(
       customers.map(u => ({
         Username: u.username,
         Email: u.email,
-        Points: u.points,
-        Disposals: getUserLogs(u.uid).length,
-        'Date Joined': new Date(u.createdAt).toLocaleDateString(),
-        Rank: getRankBadge(u.points).label,
+        'Lifetime Points': lifetimeOf(u),
+        Balance: u.points,
+        Disposals: logsOf(u.uid).length,
+        'Date Joined': fmtDate(u.createdAt, 'yyyy-MM-dd', ''),
+        Rank: getRankBadge(lifetimeOf(u)).label,
       })),
       'ecoreward-users.csv'
     );
   };
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <UsersIcon className="w-16 h-16 text-red-400" />
-          <p className="text-white font-bold text-lg">Failed to load users</p>
-          <p className="text-white/40 text-sm">Check your Firebase connection and try again.</p>
-          <button onClick={() => window.location.reload()} className="px-6 py-2 bg-blue/10 border border-blue/30 rounded-xl text-blue font-bold hover:bg-blue/20 transition">Retry</button>
-        </div>
-      </div>
-    );
-  }
+  if (error) return <LoadError what="users" />;
 
   if (loading) {
     return (
@@ -154,7 +159,7 @@ export default function UsersPage() {
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <QuickMetric
             icon={UsersIcon}
             label="Total Users"
@@ -171,7 +176,7 @@ export default function UsersPage() {
           />
           <QuickMetric
             icon={Star}
-            label="Avg Points"
+            label="Avg Lifetime Pts"
             value={Math.round(analytics.avgPoints)}
             subtitle={`${analytics.totalPoints.toLocaleString()} total`}
             color="#FFAB40"
@@ -253,8 +258,8 @@ export default function UsersPage() {
                     <div className="text-white/40 text-xs">{user.disposals} total disposals • {user.weeklyDisposals} this week</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-orange font-bold text-lg">{user.points}</div>
-                    <div className="text-white/40 text-xs">points</div>
+                    <div className="text-orange font-bold text-lg">{lifetimeOf(user).toLocaleString()}</div>
+                    <div className="text-white/40 text-xs">lifetime pts</div>
                   </div>
                 </div>
               );
@@ -327,7 +332,7 @@ export default function UsersPage() {
               key={user.uid}
               user={user}
               rank={sortBy !== 'name' ? index : -1}
-              disposals={getUserLogs(user.uid).length}
+              disposals={logsOf(user.uid).length}
               onClick={() => setSelectedUser(user)}
             />
           ))}
@@ -337,7 +342,7 @@ export default function UsersPage() {
       {selectedUser && (
         <UserDrawer
           user={selectedUser}
-          logs={getUserLogs(selectedUser.uid)}
+          logs={logsOf(selectedUser.uid)}
           onClose={() => setSelectedUser(null)}
         />
       )}
@@ -345,9 +350,10 @@ export default function UsersPage() {
   );
 }
 
-function QuickMetric({ icon: Icon, label, value, change, subtitle, color }: any) {
+interface QuickMetricProps { icon: ElementType; label: string; value: number | string; change?: number; subtitle?: string; color: string }
+function QuickMetric({ icon: Icon, label, value, change, subtitle, color }: QuickMetricProps) {
   const hasChange = change !== undefined;
-  const isPositive = change >= 0;
+  const isPositive = (change ?? 0) >= 0;
   
   return (
     <div className="p-4 bg-white/5 rounded-xl hover:bg-white/10 transition-all group cursor-pointer border border-transparent hover:border-white/10">
@@ -358,7 +364,7 @@ function QuickMetric({ icon: Icon, label, value, change, subtitle, color }: any)
         {hasChange && (
           <div className={`flex items-center gap-1 text-xs font-semibold ${isPositive ? 'text-green' : 'text-red'}`}>
             {isPositive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-            {Math.abs(change).toFixed(1)}%
+            {Math.abs(change ?? 0).toFixed(1)}%
           </div>
         )}
       </div>
@@ -369,7 +375,7 @@ function QuickMetric({ icon: Icon, label, value, change, subtitle, color }: any)
   );
 }
 
-function RankBadge({ label, count, color }: any) {
+function RankBadge({ label, count, color }: { label: string; count: number; color: string }) {
   return (
     <div className="flex items-center justify-between p-2 bg-white/5 rounded-lg">
       <span className="text-white/70 text-xs">{label}</span>
@@ -378,9 +384,10 @@ function RankBadge({ label, count, color }: any) {
   );
 }
 
-function UserCard({ user, rank, disposals, onClick }: any) {
+interface UserCardProps { user: UserModel; rank: number; disposals: number; onClick: () => void }
+function UserCard({ user, rank, disposals, onClick }: UserCardProps) {
   const medals = ['🥇', '🥈', '🥉'];
-  const rankBadge = getRankBadge(user.points);
+  const rankBadge = getRankBadge(lifetimeOf(user));
   const colors = getAvatarColor(user.username);
 
   return (
@@ -412,12 +419,12 @@ function UserCard({ user, rank, disposals, onClick }: any) {
           </span>
         </div>
         <div className="text-white/40 text-sm truncate">{user.email}</div>
-        <div className="text-white/30 text-xs mt-1">Joined {format(new Date(user.createdAt), 'MMM dd, yyyy')}</div>
+        <div className="text-white/30 text-xs mt-1">Joined {fmtDate(user.createdAt, 'MMM dd, yyyy', 'date unknown')}</div>
       </div>
       <div className="text-right shrink-0">
         <div className="flex items-center gap-1.5 text-orange text-base font-bold mb-1">
           <Star className="w-4 h-4" />
-          {user.points.toLocaleString()}
+          {lifetimeOf(user).toLocaleString()}
         </div>
         <div className="flex items-center gap-1.5 text-white/40 text-sm">
           <Recycle className="w-4 h-4" />
@@ -429,27 +436,20 @@ function UserCard({ user, rank, disposals, onClick }: any) {
   );
 }
 
-function UserDrawer({ user, logs, onClose }: any) {
-  const rankBadge = getRankBadge(user.points);
+interface UserDrawerProps { user: UserModel; logs: WasteLog[]; onClose: () => void }
+function UserDrawer({ user, logs, onClose }: UserDrawerProps) {
+  const rankBadge = getRankBadge(lifetimeOf(user));
   const colors = getAvatarColor(user.username);
-  const totalEarned = logs.reduce((sum: number, l: WasteLog) => sum + l.pointsEarned, 0);
-  const bio = logs.filter((l: WasteLog) => l.wasteType === 'Biodegradable').length;
-  const rec = logs.filter((l: WasteLog) => l.wasteType === 'Recyclable').length;
-  const res = logs.filter((l: WasteLog) => l.wasteType === 'Residual').length;
-  const [drawerReady, setDrawerReady] = useState(false);
+  const totalEarned = logs.reduce((sum, l) => sum + creditedOf(l), 0);
+  const bio = logs.filter(l => l.wasteType === 'Biodegradable').length;
+  const rec = logs.filter(l => l.wasteType === 'Recyclable').length;
+  const res = logs.filter(l => l.wasteType === 'Residual').length;
 
-  useEffect(() => {
-    const t = setTimeout(() => setDrawerReady(true), 120);
-    return () => clearTimeout(t);
-  }, [user.uid]);
-
+  const perDay = new Map<string, number>();
+  for (const l of logs) { const k = dayKey(l.timestamp); if (k) perDay.set(k, (perDay.get(k) ?? 0) + 1); }
   const last7Days = Array.from({ length: 7 }, (_, i) => {
     const date = subDays(new Date(), 6 - i);
-    const dayLogs = logs.filter((l: WasteLog) => format(new Date(l.timestamp), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd'));
-    return {
-      day: format(date, 'EEE'),
-      count: dayLogs.length
-    };
+    return { day: format(date, 'EEE'), count: perDay.get(format(date, 'yyyy-MM-dd')) ?? 0 };
   });
 
   return (
@@ -481,16 +481,10 @@ function UserDrawer({ user, logs, onClose }: any) {
         </div>
 
         <div className="p-6 space-y-6">
-          {!drawerReady ? (
-            <div className="space-y-4">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-20 bg-white/5 rounded-xl animate-pulse" />
-              ))}
-            </div>
-            ) : (
           <>
-          <div className="grid grid-cols-3 gap-3">
-            <MiniStat icon={Star} label="Points" value={user.points} color="#FFAB40" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <MiniStat icon={Star} label="Lifetime" value={lifetimeOf(user)} color="#FFAB40" />
+            <MiniStat icon={Star} label="Balance" value={user.points ?? 0} color="#FFD54F" />
             <MiniStat icon={Recycle} label="Disposals" value={logs.length} color="#00E676" />
             <MiniStat icon={TrendingUp} label="Earned" value={totalEarned} color="#FF6D00" />
           </div>
@@ -536,19 +530,18 @@ function UserDrawer({ user, logs, onClose }: any) {
                 Recent Activity
               </h3>
               <div className="space-y-2">
-                {logs.slice(0, 10).map((log: WasteLog, i: number) => <LogItem key={i} log={log} />)}
+                {logs.slice(0, 10).map((log, i) => <LogItem key={log.id ?? i} log={log} />)}
               </div>
             </div>
           )}
           </>
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-function MiniStat({ icon: Icon, label, value, color }: any) {
+function MiniStat({ icon: Icon, label, value, color }: { icon: ElementType; label: string; value: number; color: string }) {
   return (
     <div className="rounded-xl p-3 text-center border hover:scale-105 transition-transform" style={{ backgroundColor: `${color}14`, borderColor: `${color}33` }}>
       <Icon className="w-5 h-5 mx-auto mb-2" style={{ color }} />
@@ -558,7 +551,7 @@ function MiniStat({ icon: Icon, label, value, color }: any) {
   );
 }
 
-function WasteBar({ label, count, total, color }: any) {
+function WasteBar({ label, count, total, color }: { label: string; count: number; total: number; color: string }) {
   const pct = total === 0 ? 0 : (count / total) * 100;
   return (
     <div className="mb-3 last:mb-0">
@@ -587,10 +580,10 @@ function LogItem({ log }: { log: WasteLog }) {
         </div>
         <div>
           <div className="text-white/70 text-sm font-medium">{log.wasteType}</div>
-          <div className="text-white/40 text-xs">{format(new Date(log.timestamp), 'MMM dd, HH:mm')}</div>
+          <div className="text-white/40 text-xs">{fmtDate(log.timestamp, 'MMM dd, HH:mm')}</div>
         </div>
       </div>
-      <span className="text-sm font-bold" style={{ color }}>+{log.pointsEarned} pts</span>
+      <span className="text-sm font-bold" style={{ color }}>+{creditedOf(log)} pts</span>
     </div>
   );
 }

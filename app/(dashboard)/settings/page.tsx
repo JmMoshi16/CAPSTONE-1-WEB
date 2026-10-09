@@ -8,6 +8,7 @@ import { subscribeToSettings, saveSettings } from '@/lib/firebaseService';
 import { AppSettings, DEFAULT_SETTINGS } from '@/lib/types';
 import toast from 'react-hot-toast';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
+import { fmtDate } from '@/lib/dates';
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -141,7 +142,7 @@ export default function SettingsPage() {
         {/* Last updated */}
         {settings.updatedAt && (
           <p className="text-white/30 text-xs px-1">
-            Last saved: {new Date(settings.updatedAt).toLocaleString()}
+            Last saved: {fmtDate(settings.updatedAt, 'MMM d, yyyy h:mm a', 'never')}
           </p>
         )}
 

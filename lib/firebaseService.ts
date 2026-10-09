@@ -7,23 +7,18 @@ import {
   updateDoc,
   deleteDoc,
   doc,
-  getDoc,
   setDoc,
   onSnapshot,
   orderBy,
+  limit,
   runTransaction,
-  Timestamp,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { UserModel, WasteLog, Reward, Redemption, BinStatus, AppSettings, DEFAULT_SETTINGS, QRScanRecord } from './types';
-
-// H-07: tolerant timestamp converter — handles Firestore Timestamp objects and ISO string fallback
-function _toDateStr(v: unknown): string {
-  if (v instanceof Timestamp) return v.toDate().toISOString();
-  if (typeof v === 'string') return v;
-  return new Date().toISOString();
-}
+import { toDate, toIso } from './dates';
+import { toCSV } from './csv';
+import { shareSubscription } from './sharedSubscription';
 
 // db is only null during SSR — these functions are only called from 'use client' components
 // so we assert non-null here. If db is somehow null, Firestore will throw a clear error.
@@ -32,50 +27,55 @@ function getDb() {
   return db;
 }
 
+// Every date field is normalised here, at the boundary, to an ISO string or '' (audit H-07/M-06):
+// Firestore holds Timestamps and ISO strings, and `new Date(Timestamp)` is Invalid Date.
+// The subscribe* functions are shared (lib/sharedSubscription.ts): one listener per query for the
+// whole dashboard instead of one per page visit (audit M-03).
+
 // ─── Users ────────────────────────────────────────────────────────────────────
 
-export const subscribeToCustomers = (callback: (users: UserModel[]) => void) => {
-  const q = query(collection(getDb(), 'users'), where('role', '==', 'customer'));
-  return onSnapshot(q, snapshot => {
-    callback(snapshot.docs.map(d => ({ uid: d.id, ...d.data() } as UserModel)));
-  });
-};
+export const subscribeToCustomers = shareSubscription<UserModel[]>((onData, onError) =>
+  onSnapshot(query(collection(getDb(), 'users'), where('role', '==', 'customer')), snapshot => {
+    onData(snapshot.docs.map(d => {
+      const data = d.data();
+      return { uid: d.id, ...data, createdAt: toIso(data.createdAt) } as UserModel;
+    }));
+  }, onError));
 
 // ─── Leaderboard ─────────────────────────────────────────────────────────────
 
-export const subscribeToLeaderboard = (callback: (users: UserModel[]) => void, limit = 50) => {
-  const q = query(
+/** Top customers by lifetime points, matching the phone app (audit M-07 / M-11). Firestore applies
+ *  the limit; customers without `lifetimePoints` appear once tools/backfill_profiles.py has run. */
+export const LEADERBOARD_SIZE = 50;
+export const subscribeToLeaderboard = shareSubscription<UserModel[]>((onData, onError) =>
+  onSnapshot(query(
     collection(getDb(), 'users'),
     where('role', '==', 'customer'),
-    orderBy('points', 'desc'),
-  );
-  return onSnapshot(q, snapshot => {
-    const users = snapshot.docs
-      .map(d => ({ uid: d.id, ...d.data() } as UserModel))
-      .slice(0, limit);
-    callback(users);
-  });
-};
+    orderBy('lifetimePoints', 'desc'),
+    limit(LEADERBOARD_SIZE),
+  ), snapshot => {
+    onData(snapshot.docs.map(d => {
+      const data = d.data();
+      return { uid: d.id, ...data, createdAt: toIso(data.createdAt) } as UserModel;
+    }));
+  }, onError));
 
 // ─── Waste Logs ───────────────────────────────────────────────────────────────
 
-export const subscribeToWasteLogs = (callback: (logs: WasteLog[]) => void) => {
-  const q = query(collection(getDb(), 'waste_logs'), orderBy('timestamp', 'desc'));
-  return onSnapshot(q, snapshot => {
-    callback(snapshot.docs.map(d => {
+export const subscribeToWasteLogs = shareSubscription<WasteLog[]>((onData, onError) =>
+  onSnapshot(query(collection(getDb(), 'waste_logs'), orderBy('timestamp', 'desc')), snapshot => {
+    onData(snapshot.docs.map(d => {
       const data = d.data();
-      return { id: d.id, ...data, timestamp: _toDateStr(data.timestamp) } as WasteLog;  // H-07
+      return { id: d.id, ...data, timestamp: toIso(data.timestamp) } as WasteLog;
     }));
-  });
-};
+  }, onError));
 
 // ─── Rewards ──────────────────────────────────────────────────────────────────
 
-export const subscribeToRewards = (callback: (rewards: Reward[]) => void) => {
-  return onSnapshot(collection(getDb(), 'rewards'), snapshot => {
-    callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Reward)));
-  });
-};
+export const subscribeToRewards = shareSubscription<Reward[]>((onData, onError) =>
+  onSnapshot(collection(getDb(), 'rewards'), snapshot => {
+    onData(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Reward)));
+  }, onError));
 
 export const addReward = async (reward: Omit<Reward, 'id'>): Promise<void> => {
   await addDoc(collection(getDb(), 'rewards'), reward);
@@ -91,64 +91,49 @@ export const deleteReward = async (id: string): Promise<void> => {
 
 // ─── Redemptions ──────────────────────────────────────────────────────────────
 
-export const subscribeToRedemptions = (callback: (redemptions: Redemption[]) => void) => {
-  const q = query(collection(getDb(), 'redemptions'), orderBy('redeemedAt', 'desc'));
-  return onSnapshot(q, snapshot => {
-    callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Redemption)));
-  });
-};
+export const subscribeToRedemptions = shareSubscription<Redemption[]>((onData, onError) =>
+  onSnapshot(query(collection(getDb(), 'redemptions'), orderBy('redeemedAt', 'desc')), snapshot => {
+    onData(snapshot.docs.map(d => {
+      const data = d.data();
+      return { id: d.id, ...data, redeemedAt: toIso(data.redeemedAt) } as Redemption;
+    }));
+  }, onError));
 
 export const markRedemptionClaimed = async (id: string): Promise<void> => {
   await updateDoc(doc(getDb(), 'redemptions', id), { status: 'claimed' });
 };
 
-// ─── QR Tokens ────────────────────────────────────────────────────────────────
-
-export const createQRToken = async (token: string, wasteType: string, expiresAt: Date): Promise<string> => {
-  const claimCode = String(Math.floor(1000 + Math.random() * 9000));
-  await setDoc(doc(getDb(), 'qr_tokens', token), {
-    wasteType,
-    expiresAt: Timestamp.fromDate(expiresAt),   // H-07
-    usedBy: [],
-    isUsed: false,
-    createdAt: serverTimestamp(),               // H-07
-    claimCode,
-  });
-  return claimCode;
-};
-
 // ─── QR Scan History ──────────────────────────────────────────────────────────
 
-export const subscribeToQRHistory = (callback: (records: QRScanRecord[]) => void) => {
-  const q = query(collection(getDb(), 'qr_scan_history'), orderBy('scannedAt', 'desc'));
-  return onSnapshot(q, snapshot => {
-    callback(snapshot.docs.map(d => {
+export const subscribeToQRHistory = shareSubscription<QRScanRecord[]>((onData, onError) =>
+  onSnapshot(query(collection(getDb(), 'qr_scan_history'), orderBy('scannedAt', 'desc')), snapshot => {
+    onData(snapshot.docs.map(d => {
       const data = d.data();
       return {
         id: d.id, ...data,
-        scannedAt:      _toDateStr(data.scannedAt),       // H-07
-        tokenCreatedAt: _toDateStr(data.tokenCreatedAt),  // H-07
-        expiresAt:      _toDateStr(data.expiresAt),       // H-07
+        scannedAt:      toIso(data.scannedAt),
+        tokenCreatedAt: toIso(data.tokenCreatedAt),
+        expiresAt:      toIso(data.expiresAt),
       } as QRScanRecord;
     }));
-  });
-};
+  }, onError));
 
 // ─── Bins ─────────────────────────────────────────────────────────────────────
 
-export const subscribeToBins = (callback: (bins: BinStatus[]) => void) => {
-  return onSnapshot(collection(getDb(), 'bins'), snapshot => {
-    callback(snapshot.docs.map(d => ({ binId: d.id, ...d.data() } as BinStatus)));
-  });
-};
+export const subscribeToBins = shareSubscription<BinStatus[]>((onData, onError) =>
+  onSnapshot(collection(getDb(), 'bins'), snapshot => {
+    onData(snapshot.docs.map(d => {
+      const data = d.data();
+      return { binId: d.id, ...data, lastUpdated: toIso(data.lastUpdated) } as BinStatus;
+    }));
+  }, onError));
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
-export const subscribeToSettings = (callback: (settings: AppSettings) => void) => {
-  return onSnapshot(doc(getDb(), 'settings', 'app'), snap => {
-    callback(snap.exists() ? (snap.data() as AppSettings) : DEFAULT_SETTINGS);
-  });
-};
+export const subscribeToSettings = shareSubscription<AppSettings>((onData, onError) =>
+  onSnapshot(doc(getDb(), 'settings', 'app'), snap => {
+    onData(snap.exists() ? { ...DEFAULT_SETTINGS, ...(snap.data() as AppSettings) } : DEFAULT_SETTINGS);
+  }, onError));
 
 export const saveSettings = async (settings: AppSettings): Promise<void> => {
   await setDoc(doc(getDb(), 'settings', 'app'), {
@@ -199,7 +184,7 @@ export const manualClaimPoints = async (
 
   const tokenData = matchingToken.data();
   // Timestamp (H-07) or legacy ISO string; new Date(Timestamp) would be Invalid Date = never expired.
-  const expiresAt = tokenData.expiresAt ? new Date(_toDateStr(tokenData.expiresAt)) : null;
+  const expiresAt = toDate(tokenData.expiresAt);
   if (expiresAt && new Date() > expiresAt) return { success: false, error: 'This QR token has expired.' };
 
   const usedBy: string[] = tokenData.usedBy ?? [];
@@ -207,32 +192,48 @@ export const manualClaimPoints = async (
   if (usedBy.length > 0) return { success: false, error: 'This claim code has already been used.' };
 
   const wasteType: string = tokenData.wasteType ?? 'Residual';
-  const pointsMap: Record<string, number> = { Biodegradable: 15, Recyclable: 10, Residual: 5 };
-  const pointsAwarded = pointsMap[wasteType] ?? 5;
+  const pointsMap: Record<string, number> = {   // config/rules.json via DEFAULT_SETTINGS (audit M-24)
+    Biodegradable: DEFAULT_SETTINGS.pointsBiodegradable,
+    Recyclable: DEFAULT_SETTINGS.pointsRecyclable,
+    Residual: DEFAULT_SETTINGS.pointsResidual,
+  };
+  const pointsAwarded = pointsMap[wasteType] ?? DEFAULT_SETTINGS.pointsResidual;
 
   // Mark token used + credit points + log waste — all in one transaction.
   // Keeps lifetimePoints and the public profiles/{uid} copy in step with the app (audit M-11 / H-13).
-  await runTransaction(firestore, async tx => {
-    const tokenRef = doc(firestore, 'qr_tokens', matchingToken.id);
-    const userRef = doc(firestore, 'users', userDoc.id);
-    const logRef = doc(collection(firestore, 'waste_logs'));
-    const live = (await tx.get(userRef)).data() ?? {};
-    const points = (live.points ?? 0) + pointsAwarded;
-    const lifetimePoints = (typeof live.lifetimePoints === 'number' ? live.lifetimePoints : live.points ?? 0) + pointsAwarded;
-    tx.update(tokenRef, { usedBy: [...usedBy, userDoc.id], isUsed: true });
-    tx.update(userRef, { points, lifetimePoints });
-    tx.set(doc(firestore, 'profiles', userDoc.id), {
-      username: live.username ?? '', points, lifetimePoints, badges: live.badges ?? [],
+  const ALREADY_USED = 'already-used';
+  try {
+    await runTransaction(firestore, async tx => {
+      const tokenRef = doc(firestore, 'qr_tokens', matchingToken.id);
+      const userRef = doc(firestore, 'users', userDoc.id);
+      const logRef = doc(collection(firestore, 'waste_logs'));
+      // Re-check inside the transaction: the phone or another staff member may have claimed the
+      // token since the query above (audit H-06 race).
+      const liveToken = (await tx.get(tokenRef)).data();
+      if (!liveToken || liveToken.isUsed === true || (liveToken.usedBy ?? []).length > 0) throw new Error(ALREADY_USED);
+      const live = (await tx.get(userRef)).data() ?? {};
+      const points = (live.points ?? 0) + pointsAwarded;
+      const lifetimePoints = (typeof live.lifetimePoints === 'number' ? live.lifetimePoints : live.points ?? 0) + pointsAwarded;
+      tx.update(tokenRef, { usedBy: [...usedBy, userDoc.id], isUsed: true });
+      tx.update(userRef, { points, lifetimePoints });
+      tx.set(doc(firestore, 'profiles', userDoc.id), {
+        username: live.username ?? '', points, lifetimePoints, badges: live.badges ?? [],
+      });
+      tx.set(logRef, {
+        userId: userDoc.id,
+        wasteType,
+        pointsEarned: pointsAwarded,
+        pointsAwarded,
+        timestamp: serverTimestamp(),
+        binId: matchingToken.id.substring(0, 8),
+      });
     });
-    tx.set(logRef, {
-      userId: userDoc.id,
-      wasteType,
-      pointsEarned: pointsAwarded,
-      pointsAwarded,
-      timestamp: serverTimestamp(),
-      binId: matchingToken.id.substring(0, 8),
-    });
-  });
+  } catch (e) {
+    if (e instanceof Error && e.message === ALREADY_USED) {
+      return { success: false, error: 'This claim code was just used by someone else.' };
+    }
+    throw e;
+  }
 
   return {
     success: true,
@@ -249,13 +250,8 @@ export const manualClaimPoints = async (
 
 export const exportToCSV = (data: Record<string, unknown>[], filename: string): void => {
   if (data.length === 0) return;
-  const headers = Object.keys(data[0]);
-  const csvContent = [
-    headers.join(','),
-    ...data.map(row => headers.map(h => JSON.stringify(row[h] ?? '')).join(',')),
-  ].join('\n');
-
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  // RFC 4180 + formula neutralisation (audit M-04); BOM so Excel reads UTF-8 names correctly.
+  const blob = new Blob(['﻿' + toCSV(data)], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
