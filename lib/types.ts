@@ -29,6 +29,7 @@ export interface Reward {
   pointsCost: number;
   category: 'Coffee' | 'Food' | 'Discount' | 'Other';
   isActive: boolean;
+  stock?: number; // -1 or missing = unlimited, 0 = sold out (same meaning as the Flutter app)
 }
 
 export interface Redemption {

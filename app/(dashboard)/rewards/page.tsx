@@ -173,6 +173,9 @@ function RewardCard({ reward, onEdit, onDelete }: RewardCardProps) {
         <div className="flex items-center gap-3">
           <span className="text-amber-400 text-xs font-bold">⭐ {reward.pointsCost} pts</span>
           <span className="px-2 py-0.5 bg-white/5 rounded text-white/40 text-xs">{reward.category}</span>
+          <span className={`text-xs ${reward.stock === 0 ? 'text-red-500 font-bold' : 'text-white/40'}`}>
+            {reward.stock === undefined || reward.stock < 0 ? 'Unlimited' : reward.stock === 0 ? 'Sold out' : `${reward.stock} left`}
+          </span>
         </div>
       </div>
       <div className="flex gap-2 shrink-0">
@@ -269,13 +272,18 @@ function RewardForm({ reward, onClose }: RewardFormProps) {
   const [pointsCost, setPointsCost] = useState(String(reward?.pointsCost ?? ''));
   const [category, setCategory] = useState<RewardCategory>(reward?.category ?? 'Coffee');
   const [isActive, setIsActive] = useState(reward?.isActive ?? true);
+  // Blank = unlimited (-1). Audit M-12: stock could not be set from either admin UI.
+  const initialStock = reward?.stock === undefined || reward.stock < 0 ? '' : String(reward.stock);
+  const [stock, setStock] = useState(initialStock);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const data = { title, description, pointsCost: parseInt(pointsCost), category, isActive };
+      const data: Omit<Reward, 'id'> = { title, description, pointsCost: parseInt(pointsCost), category, isActive };
+      // Only send stock when it was edited: a redemption may have lowered it while the form was open.
+      if (!reward || stock !== initialStock) data.stock = stock.trim() === '' ? -1 : parseInt(stock);
       if (reward?.id) {
         await updateReward(reward.id, data);
         toast.success('Reward updated');
@@ -299,6 +307,7 @@ function RewardForm({ reward, onClose }: RewardFormProps) {
           <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" className="w-full bg-bg border border-border rounded-btn px-4 py-3 text-white focus:outline-none focus:border-green" required />
           <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="Description" className="w-full bg-bg border border-border rounded-btn px-4 py-3 text-white focus:outline-none focus:border-green" required />
           <input type="number" value={pointsCost} onChange={e => setPointsCost(e.target.value)} placeholder="Points Cost" min="1" className="w-full bg-bg border border-border rounded-btn px-4 py-3 text-white focus:outline-none focus:border-green" required />
+          <input type="number" value={stock} onChange={e => setStock(e.target.value)} placeholder="Stock (leave blank for unlimited)" min="0" step="1" aria-label="Stock (leave blank for unlimited)" className="w-full bg-bg border border-border rounded-btn px-4 py-3 text-white focus:outline-none focus:border-green" />
           <select value={category} onChange={e => setCategory(e.target.value as RewardCategory)} className="w-full bg-bg border border-border rounded-btn px-4 py-3 text-white focus:outline-none focus:border-green">
             {(['Coffee', 'Food', 'Discount', 'Other'] as RewardCategory[]).map(c => <option key={c} value={c}>{c}</option>)}
           </select>
