@@ -75,7 +75,7 @@ export default function SettingsPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-white">Settings</h1>
-            <p className="text-white/40 text-sm">System configuration — changes sync to all devices</p>
+            <p className="text-white/40 text-sm">System configuration — changes apply to this web panel only</p>
           </div>
         </div>
       </div>

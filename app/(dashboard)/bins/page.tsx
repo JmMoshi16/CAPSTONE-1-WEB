@@ -87,8 +87,7 @@ export default function BinsPage() {
       <div className="bg-card border border-border rounded-card p-6">
         <h2 className="text-white font-bold mb-4">System Health</h2>
         <div className="space-y-3">
-          <HealthRow label="Firebase Firestore Sync" status="online" />
-          <HealthRow label="Firebase Auth" status="online" />
+          <HealthRow label="Firebase Firestore" status="online" />
           <HealthRow label="ESP32 Hardware" status={onlineBins > 0 ? 'online' : 'offline'} />
           <div className="pt-2 border-t border-border space-y-2">
             <div className="flex items-center justify-between text-sm">

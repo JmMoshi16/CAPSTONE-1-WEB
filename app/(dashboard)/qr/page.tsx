@@ -6,8 +6,8 @@ import { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { QrCode, Receipt, Clock, RefreshCw, Recycle, History, User, CheckCircle, XCircle, Timer, X, ChevronRight, Search } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { createQRToken, subscribeToSettings, subscribeToQRHistory, subscribeToWasteLogs, subscribeToCustomers } from '@/lib/firebaseService';
-import { WasteType, AppSettings, DEFAULT_SETTINGS, QRScanRecord, WasteLog, UserModel } from '@/lib/types';
+import { createQRToken, subscribeToSettings, subscribeToQRHistory } from '@/lib/firebaseService';
+import { WasteType, AppSettings, DEFAULT_SETTINGS, QRScanRecord } from '@/lib/types';
 import { format, formatDistanceToNow } from 'date-fns';
 
 const WASTE_TYPES: { type: WasteType; color: string }[] = [
@@ -31,17 +31,13 @@ export default function QRPage() {
   const [expiresAt, setExpiresAt] = useState<Date | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [history, setHistory] = useState<QRScanRecord[]>([]);
-  const [wasteLogs, setWasteLogs] = useState<WasteLog[]>([]);
-  const [users, setUsers] = useState<UserModel[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<QRScanRecord | null>(null);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
     const unsubSettings = subscribeToSettings(setSettings);
     const unsubHistory = subscribeToQRHistory(setHistory);
-    const unsubWasteLogs = subscribeToWasteLogs(setWasteLogs);
-    const unsubUsers = subscribeToCustomers(setUsers);
-    return () => { unsubSettings(); unsubHistory(); unsubWasteLogs(); unsubUsers(); };
+    return () => { unsubSettings(); unsubHistory(); };
   }, []);
 
   const isExpired = expiresAt ? new Date() > expiresAt : false;
@@ -64,25 +60,10 @@ export default function QRPage() {
     Residual: settings.pointsResidual,
   };
 
-  const combinedHistory = [
-    ...history,
-    ...wasteLogs.map(log => {
-      const user = users.find(u => u.uid === log.userId);
-      return {
-        id: log.id || '',
-        token: 'direct-bin-scan',
-        wasteType: log.wasteType,
-        scannedAt: log.timestamp,
-        scannedByUid: log.userId,
-        scannedByName: user?.username || 'Unknown User',
-        scannedByEmail: user?.email || 'unknown@email.com',
-        pointsAwarded: log.pointsEarned,
-        tokenCreatedAt: log.timestamp,
-        expiresAt: log.timestamp,
-        secondsAfterCreation: 0,
-      } as QRScanRecord;
-    })
-  ].sort((a, b) => new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime());
+  // H-08: use qr_scan_history as the single source of truth; merging waste_logs caused double-counting
+  const combinedHistory = [...history].sort(
+    (a, b) => new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime()
+  );
 
   const filteredHistory = combinedHistory.filter(r =>
     r.scannedByName.toLowerCase().includes(search.toLowerCase()) ||
