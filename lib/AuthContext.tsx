@@ -36,14 +36,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setState({ user: null, isAdmin: false, loading: false });
             return;
           }
+          // Stay "loading" until the admin check is done. Reporting {user: null, loading: false} in
+          // the meantime made AuthGuard bounce a freshly signed-in admin back to the login page
+          // (found by the Phase 8 browser smoke test).
+          setState(s => ({ ...s, loading: true }));
           try {
-            const snap = await Promise.race([
-              getDoc(doc(db, 'users', firebaseUser.uid)),
-              new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Firestore admin lookup timed out')), 8000),
-              ),
-            ]);
-            const isAdmin = snap.exists() && snap.data().role === 'admin';
+            // Admin = custom claim `admin: true` (Phase 7) or users/{uid}.role == 'admin' - same as the rules.
+            const token = await firebaseUser.getIdTokenResult();
+            let isAdmin = token.claims.admin === true;
+            if (!isAdmin) {
+              const snap = await Promise.race([
+                getDoc(doc(db, 'users', firebaseUser.uid)),
+                new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error('Firestore admin lookup timed out')), 8000),
+                ),
+              ]);
+              isAdmin = snap.exists() && snap.data().role === 'admin';
+            }
             setState({ user: { uid: firebaseUser.uid, email: firebaseUser.email }, isAdmin, loading: false });
           } catch {
             setState({ user: { uid: firebaseUser.uid, email: firebaseUser.email }, isAdmin: false, loading: false });

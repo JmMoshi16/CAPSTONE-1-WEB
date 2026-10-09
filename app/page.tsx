@@ -32,11 +32,14 @@ export default function LoginPage() {
       const { doc, getDoc } = await import('firebase/firestore');
 
       const credential = await signInWithEmailAndPassword(auth, email, password);
-      const snap = await getDoc(doc(db, 'users', credential.user.uid));
+      const claimAdmin = (await credential.user.getIdTokenResult()).claims.admin === true;
+      const isAdmin = claimAdmin || await getDoc(doc(db, 'users', credential.user.uid))
+        .then(snap => snap.exists() && snap.data().role === 'admin');
 
-      if (snap.exists() && snap.data().role === 'admin') {
+      if (isAdmin) {
+        // AuthContext finishes its own check and the effect above opens the dashboard;
+        // navigating here as well raced with AuthGuard (see AuthContext).
         toast.success('Welcome back, Admin!');
-        router.replace('/dashboard');
       } else {
         await auth.signOut();
         toast.error('Access denied. Admin accounts only.');

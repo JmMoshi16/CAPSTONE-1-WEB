@@ -14,13 +14,15 @@ const enforcedCsp = [
 // dashboard, sign in, use every page, and check the browser console for "Content-Security-Policy"
 // reports; when there are none, rename the header below to `Content-Security-Policy`.
 const isDev = process.env.NODE_ENV !== 'production';
+// Browser-test builds talk to the local emulators; never set for a real build.
+const emulators = process.env.NEXT_PUBLIC_USE_EMULATORS === '1' ? ' http://127.0.0.1:9099 http://127.0.0.1:8085' : '';
 const reportOnlyCsp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`, // Next.js inline bootstrap scripts
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com",
+  `connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com${emulators}`,
   "frame-src https://*.firebaseapp.com",
   "frame-ancestors 'none'",
   "object-src 'none'",
