@@ -40,6 +40,8 @@ const securityHeaders = [
 
 const nextConfig = {
   reactStrictMode: true,
+  // The browser-test build (npm run e2e) goes to its own folder so it never replaces the real build.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   poweredByHeader: false,
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];

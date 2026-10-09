@@ -42,8 +42,13 @@ export default function LoginPage() {
         toast.error('Access denied. Admin accounts only.');
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Login failed';
-      toast.error(message);
+      // Never show raw Firebase error text (audit M-17), and do not reveal which part was wrong.
+      const code = typeof err === 'object' && err && 'code' in err ? String((err as { code: unknown }).code) : '';
+      toast.error(
+        code.includes('network') ? 'No internet connection. Please try again.'
+        : code.includes('too-many-requests') ? 'Too many attempts. Please wait a moment and try again.'
+        : code.startsWith('auth/') ? 'Email or password is incorrect.'
+        : 'Could not sign in. Please try again.');
     } finally {
       setLoading(false);
     }
