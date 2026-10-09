@@ -1,3 +1,5 @@
+import _rules from '../config/rules.json';
+
 export interface UserModel {
   uid: string;
   username: string;
@@ -84,11 +86,12 @@ export interface AppSettings {
   updatedAt?: string;
 }
 
+// Derive defaults from canonical rules.json so this file never holds a duplicate constant (audit M-24)
 export const DEFAULT_SETTINGS: AppSettings = {
-  pointsBiodegradable: 15,
-  pointsRecyclable: 10,
-  pointsResidual: 5,
-  qrExpiryMinutes: 20,
+  pointsBiodegradable: _rules.points.Biodegradable,
+  pointsRecyclable:    _rules.points.Recyclable,
+  pointsResidual:      _rules.points.Residual,
+  qrExpiryMinutes:     _rules.qrExpiryMinutes,
   maxBinFillAlert: 80,
 };
 

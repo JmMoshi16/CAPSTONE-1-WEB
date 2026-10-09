@@ -13,9 +13,18 @@ import {
   orderBy,
   runTransaction,
   increment,
+  Timestamp,
+  serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { UserModel, WasteLog, Reward, Redemption, BinStatus, AppSettings, DEFAULT_SETTINGS, QRScanRecord } from './types';
+
+// H-07: tolerant timestamp converter — handles Firestore Timestamp objects and ISO string fallback
+function _toDateStr(v: unknown): string {
+  if (v instanceof Timestamp) return v.toDate().toISOString();
+  if (typeof v === 'string') return v;
+  return new Date().toISOString();
+}
 
 // db is only null during SSR — these functions are only called from 'use client' components
 // so we assert non-null here. If db is somehow null, Firestore will throw a clear error.
@@ -54,7 +63,10 @@ export const subscribeToLeaderboard = (callback: (users: UserModel[]) => void, l
 export const subscribeToWasteLogs = (callback: (logs: WasteLog[]) => void) => {
   const q = query(collection(getDb(), 'waste_logs'), orderBy('timestamp', 'desc'));
   return onSnapshot(q, snapshot => {
-    callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as WasteLog)));
+    callback(snapshot.docs.map(d => {
+      const data = d.data();
+      return { id: d.id, ...data, timestamp: _toDateStr(data.timestamp) } as WasteLog;  // H-07
+    }));
   });
 };
 
@@ -97,9 +109,10 @@ export const createQRToken = async (token: string, wasteType: string, expiresAt:
   const claimCode = String(Math.floor(1000 + Math.random() * 9000));
   await setDoc(doc(getDb(), 'qr_tokens', token), {
     wasteType,
-    expiresAt: expiresAt.toISOString(),
+    expiresAt: Timestamp.fromDate(expiresAt),   // H-07
     usedBy: [],
-    createdAt: new Date().toISOString(),
+    isUsed: false,
+    createdAt: serverTimestamp(),               // H-07
     claimCode,
   });
   return claimCode;
@@ -110,7 +123,15 @@ export const createQRToken = async (token: string, wasteType: string, expiresAt:
 export const subscribeToQRHistory = (callback: (records: QRScanRecord[]) => void) => {
   const q = query(collection(getDb(), 'qr_scan_history'), orderBy('scannedAt', 'desc'));
   return onSnapshot(q, snapshot => {
-    callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as QRScanRecord)));
+    callback(snapshot.docs.map(d => {
+      const data = d.data();
+      return {
+        id: d.id, ...data,
+        scannedAt:      _toDateStr(data.scannedAt),       // H-07
+        tokenCreatedAt: _toDateStr(data.tokenCreatedAt),  // H-07
+        expiresAt:      _toDateStr(data.expiresAt),       // H-07
+      } as QRScanRecord;
+    }));
   });
 };
 
