@@ -50,7 +50,12 @@ export default async function globalSetup() {
       createdAt: now, scanCount: SCANS, streak: 1, lastScanDate: now.toISOString().slice(0, 10), badges: ['first_scan'] },
     [`profiles/${aliceUid}`]: { username: CUSTOMER.username, points: 25, lifetimePoints: 25, badges: ['first_scan'] },
     'rewards/coffee': { title: 'Free Coffee', description: 'A cup of coffee', pointsCost: 50, category: 'Coffee', isActive: true, stock: 5 },
-    'settings/app': { pointsBiodegradable: 15, pointsRecyclable: 10, pointsResidual: 5, qrExpiryMinutes: 20, maxBinFillAlert: 80 },
+    // Kiosk heartbeat and bins exactly as app.py writes them; the second kiosk crashed 10 minutes ago.
+    'kiosks/kiosk-cafe': { lastSeen: now, status: 'online', name: 'CAFE-PC' },
+    'kiosks/kiosk-old':  { lastSeen: new Date(now.getTime() - 10 * 60_000), status: 'online', name: 'OLD-PC' },
+    'bins/kiosk-cafe-bio': { location: 'CAFE-PC · Biodegradable', fillLevel: 40,  status: 'online', lastUpdated: now },
+    'bins/kiosk-cafe-rec': { location: 'CAFE-PC · Recyclable',    fillLevel: 92,  status: 'online', lastUpdated: now },
+    'bins/kiosk-cafe-res': { location: 'CAFE-PC · Residual',      fillLevel: 100, status: 'online', lastUpdated: now },
   };
   for (let i = 0; i < SCANS; i++) {
     const at = new Date(now.getTime() - (i + 1) * 60_000);

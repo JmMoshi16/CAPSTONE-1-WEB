@@ -11,25 +11,7 @@ import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import StatPill from '@/components/StatPill';
 import LoadError from '@/components/LoadError';
 
-const BADGE_DEFS = [
-  { id: 'first_scan',  label: 'First Scan',   icon: '🌱' },
-  { id: 'scan_5',      label: '5 Scans',       icon: '♻️' },
-  { id: 'scan_10',     label: 'Eco Starter',   icon: '🌿' },
-  { id: 'scan_25',     label: 'Eco Warrior',   icon: '🏆' },
-  { id: 'scan_50',     label: 'Eco Champion',  icon: '🥇' },
-  { id: 'pts_50',      label: 'Point Earner',  icon: '⭐' },
-  { id: 'pts_100',     label: 'Century Club',  icon: '💯' },
-  { id: 'pts_500',     label: 'Platinum Eco',  icon: '💎' },
-  { id: 'streak_3',    label: 'On a Roll',     icon: '🔥' },
-  { id: 'streak_7',    label: 'Week Warrior',  icon: '🌟' },
-];
-
-function getRankTier(points: number) {
-  if (points >= 500) return { label: 'Platinum', color: '#00B0FF', icon: '💎' };
-  if (points >= 200) return { label: 'Gold',     color: '#FFAB40', icon: '🥇' };
-  if (points >= 50)  return { label: 'Silver',   color: '#9E9E9E', icon: '🥈' };
-  return                    { label: 'Bronze',   color: '#CD7F32', icon: '🥉' };
-}
+import { BADGES as BADGE_DEFS, rankFor as getRankTier } from '@/lib/rules';
 
 export default function LeaderboardPage() {
   const [users, setUsers] = useState<UserModel[]>([]);

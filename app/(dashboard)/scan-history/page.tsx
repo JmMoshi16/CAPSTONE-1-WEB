@@ -4,8 +4,9 @@ export const dynamic = 'force-dynamic';
 
 import { useEffect, useMemo, useState } from 'react';
 import { Recycle, History, User, CheckCircle, XCircle, Timer, X, ChevronRight, Search } from 'lucide-react';
-import { subscribeToSettings, subscribeToQRHistory, loadOlderScans, getScanCounts, type ScanCounts } from '@/lib/firebaseService';
-import { WasteType, AppSettings, DEFAULT_SETTINGS, QRScanRecord } from '@/lib/types';
+import { subscribeToQRHistory, loadOlderScans, getScanCounts, type ScanCounts } from '@/lib/firebaseService';
+import { WasteType, QRScanRecord } from '@/lib/types';
+import { RULES } from '@/lib/rules';
 import { fmtAgo, fmtDate, timeOf } from '@/lib/dates';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import StatPill from '@/components/StatPill';
@@ -21,7 +22,6 @@ const PAGE_SIZE = 50;   // rows rendered per 'Show more'; the data layer fetches
 // One row per phone scan, from qr_scan_history only (audit H-08). Formerly /qr, whose QR-generator
 // code was never rendered (audit M-01).
 export default function ScanHistoryPage() {
-  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [history, setHistory] = useState<QRScanRecord[] | null>(null);   // newest 200, live
   const [older, setOlder] = useState<QRScanRecord[]>([]);                  // fetched on 'Show more'
   const [noMore, setNoMore] = useState(false);
@@ -32,9 +32,8 @@ export default function ScanHistoryPage() {
   const error = useLoadTimeout(history === null);
 
   useEffect(() => {
-    const unsubSettings = subscribeToSettings(setSettings);
     const unsubHistory = subscribeToQRHistory(setHistory);
-    return () => { unsubSettings(); unsubHistory(); };
+    return unsubHistory;
   }, []);
 
   // Totals by server-side count (Phase 9); refreshed whenever a new scan arrives.
@@ -106,7 +105,7 @@ export default function ScanHistoryPage() {
         ) : (
           <div className="space-y-2">
             {filtered.slice(0, shown).map(record => (
-              <ScanHistoryRow key={record.id} record={record} expiryMinutes={settings.qrExpiryMinutes} onClick={() => setSelectedRecord(record)} />
+              <ScanHistoryRow key={record.id} record={record} expiryMinutes={RULES.qrExpiryMinutes} onClick={() => setSelectedRecord(record)} />
             ))}
             {(filtered.length > shown || (!search && !noMore && sorted.length < total)) && (
               <button onClick={showMore}
@@ -119,7 +118,7 @@ export default function ScanHistoryPage() {
       </div>
 
       {selectedRecord && (
-        <ScanReceiptDrawer record={selectedRecord} expiryMinutes={settings.qrExpiryMinutes} onClose={() => setSelectedRecord(null)} />
+        <ScanReceiptDrawer record={selectedRecord} expiryMinutes={RULES.qrExpiryMinutes} onClose={() => setSelectedRecord(null)} />
       )}
     </div>
   );

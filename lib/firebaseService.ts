@@ -7,7 +7,6 @@ import {
   updateDoc,
   deleteDoc,
   doc,
-  setDoc,
   onSnapshot,
   orderBy,
   limit,
@@ -22,7 +21,8 @@ import {
   type Query,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { UserModel, WasteLog, Reward, Redemption, BinStatus, AppSettings, DEFAULT_SETTINGS, QRScanRecord } from './types';
+import { UserModel, WasteLog, Reward, Redemption, BinStatus, KioskStatus, QRScanRecord } from './types';
+import { RULES } from './rules';
 import { toDate, toIso } from './dates';
 import { toCSV } from './csv';
 import { shareSubscription } from './sharedSubscription';
@@ -226,27 +226,25 @@ export const subscribeToBins = shareSubscription<BinStatus[]>((onData, onError) 
     }));
   }, onError));
 
-// ─── Settings ─────────────────────────────────────────────────────────────────
-
-export const subscribeToSettings = shareSubscription<AppSettings>((onData, onError) =>
-  onSnapshot(doc(getDb(), 'settings', 'app'), snap => {
-    countReads(1);
-    onData(snap.exists() ? { ...DEFAULT_SETTINGS, ...(snap.data() as AppSettings) } : DEFAULT_SETTINGS);
+// The kiosk's heartbeat (app.py writes kiosks/{id} every 30 s).
+export const subscribeToKiosks = shareSubscription<KioskStatus[]>((onData, onError) =>
+  onSnapshot(collection(getDb(), 'kiosks'), snapshot => {
+    countReads(snapshot.docChanges().length);
+    onData(snapshot.docs.map(d => {
+      const data = d.data();
+      return { kioskId: d.id, ...data, lastSeen: toIso(data.lastSeen) } as KioskStatus;
+    }));
   }, onError));
 
-export const saveSettings = async (settings: AppSettings): Promise<void> => {
-  await setDoc(doc(getDb(), 'settings', 'app'), {
-    ...settings,
-    updatedAt: new Date().toISOString(),
-  });
-};
+// There is no settings write: the kiosk and the phone app take points and QR expiry from
+// config/rules.json, never from a settings document, so a web form could not change them.
 
 // ─── Manual Claim ────────────────────────────────────────────────────────────
 
 /**
- * Staff enters a claim code (token[:6]-token[6:10]) + user Gmail.
- * Looks up the qr_token by reconstructing the prefix, finds the user by email,
- * marks the token as used, logs the waste, and credits points.
+ * Staff enters the receipt's claim code (ECO-dddd) + the customer's username, confirms the account,
+ * then manualClaimPoints finds the unused token with that code, marks it used, logs the waste and
+ * credits points.
  */
 export const lookupUserByUsername = async (
   username: string
@@ -291,12 +289,8 @@ export const manualClaimPoints = async (
   if (usedBy.length > 0) return { success: false, error: 'This claim code has already been used.' };
 
   const wasteType: string = tokenData.wasteType ?? 'Residual';
-  const pointsMap: Record<string, number> = {   // config/rules.json via DEFAULT_SETTINGS (audit M-24)
-    Biodegradable: DEFAULT_SETTINGS.pointsBiodegradable,
-    Recyclable: DEFAULT_SETTINGS.pointsRecyclable,
-    Residual: DEFAULT_SETTINGS.pointsResidual,
-  };
-  const pointsAwarded = pointsMap[wasteType] ?? DEFAULT_SETTINGS.pointsResidual;
+  const pointsMap: Record<string, number> = RULES.points;   // config/rules.json, same as the kiosk (audit M-24)
+  const pointsAwarded = pointsMap[wasteType] ?? RULES.points.Residual;
 
   // Mark token used + credit points + log waste — all in one transaction.
   // Keeps lifetimePoints and the public profiles/{uid} copy in step with the app (audit M-11 / H-13).

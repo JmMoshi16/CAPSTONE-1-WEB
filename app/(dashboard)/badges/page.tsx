@@ -7,21 +7,16 @@ import { Award, Users, Star, TrendingUp, Lock, CheckCircle } from 'lucide-react'
 import { subscribeToCustomers } from '@/lib/firebaseService';
 import { UserModel } from '@/lib/types';
 import { getAvatarColor } from '@/lib/utils';
+import { BADGES } from '@/lib/rules';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import StatPill from '@/components/StatPill';
 
-const BADGE_DEFS = [
-  { id: 'first_scan', label: 'First Scan',   desc: 'Completed first scan',       icon: '🌱', req: 'scans',  value: 1,   color: '#8BC34A' },
-  { id: 'scan_5',     label: '5 Scans',       desc: 'Scanned waste 5 times',      icon: '♻️', req: 'scans',  value: 5,   color: '#00B0FF' },
-  { id: 'scan_10',    label: 'Eco Starter',   desc: 'Scanned waste 10 times',     icon: '🌿', req: 'scans',  value: 10,  color: '#4CAF50' },
-  { id: 'scan_25',    label: 'Eco Warrior',   desc: 'Scanned waste 25 times',     icon: '🏆', req: 'scans',  value: 25,  color: '#FFAB40' },
-  { id: 'scan_50',    label: 'Eco Champion',  desc: 'Scanned waste 50 times',     icon: '🥇', req: 'scans',  value: 50,  color: '#FF6D00' },
-  { id: 'pts_50',     label: 'Point Earner',  desc: 'Earned 50 points total',     icon: '⭐', req: 'points', value: 50,  color: '#FFC107' },
-  { id: 'pts_100',    label: 'Century Club',  desc: 'Earned 100 points total',    icon: '💯', req: 'points', value: 100, color: '#FF9800' },
-  { id: 'pts_500',    label: 'Platinum Eco',  desc: 'Earned 500 points total',    icon: '💎', req: 'points', value: 500, color: '#00B0FF' },
-  { id: 'streak_3',   label: 'On a Roll',     desc: '3-day scan streak',          icon: '🔥', req: 'streak', value: 3,   color: '#FF5722' },
-  { id: 'streak_7',   label: 'Week Warrior',  desc: '7-day scan streak',          icon: '🌟', req: 'streak', value: 7,   color: '#9C27B0' },
-];
+// Badge rules come from config/rules.json (what the phone app awards); only the colours are the web's.
+const BADGE_COLORS: Record<string, string> = {
+  first_scan: '#8BC34A', scan_5: '#00B0FF', scan_10: '#4CAF50', scan_25: '#FFAB40', scan_50: '#FF6D00',
+  pts_50: '#FFC107', pts_100: '#FF9800', pts_500: '#00B0FF', streak_3: '#FF5722', streak_7: '#9C27B0',
+};
+const BADGE_DEFS = BADGES.map(b => ({ ...b, color: BADGE_COLORS[b.id] ?? '#9E9E9E' }));
 
 export default function BadgesPage() {
   const [customers, setCustomers] = useState<UserModel[]>([]);

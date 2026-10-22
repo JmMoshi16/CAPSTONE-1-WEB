@@ -30,6 +30,23 @@ test('admin: dashboard survives a 20 s soak; Scan History shows one row per scan
   await expect(page.getByText(/Failed to load/)).toHaveCount(0);
 });
 
+test('Bins follows the kiosk: heartbeat decides online, rules.json thresholds; Settings is read-only', async ({ page }) => {
+  await signIn(page, ADMIN.email, ADMIN.password);
+  await expect(page).toHaveURL(/\/dashboard$/);
+
+  await page.getByRole('link', { name: 'Bin Management' }).click();
+  await expect(page.getByText('1/2 kiosks online')).toBeVisible();   // OLD-PC still says "online" but its heartbeat is 10 min old
+  await expect(page.getByRole('heading', { name: 'CAFE-PC' })).toBeVisible();
+  await expect(page.getByText('A bin is full: the kiosk is paused until it is emptied')).toBeVisible();
+  await expect(page.getByText('2 need emptying')).toBeVisible();      // 92 % (warn) and 100 % (full); 40 % is fine
+  await expect(page.getByRole('progressbar', { name: 'Recyclable fill level' })).toHaveAttribute('aria-valuenow', '92');
+
+  await page.getByRole('link', { name: 'Settings' }).click();
+  await expect(page.getByText('The rules the kiosk and the phone app use right now')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Save/ })).toHaveCount(0);
+  await expect(page.getByRole('spinbutton')).toHaveCount(0);
+});
+
 test('a customer account cannot open the admin console', async ({ page }) => {
   await signIn(page, CUSTOMER.email, CUSTOMER.password);
   await expect(page.getByText('Access denied. Admin accounts only.')).toBeVisible();

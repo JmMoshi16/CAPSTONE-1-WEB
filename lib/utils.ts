@@ -1,10 +1,5 @@
 /** Rank tier for a customer's LIFETIME points (same thresholds as the phone app). */
-export const getRankBadge = (points: number): { label: string; color: string } => {
-  if (points >= 500) return { label: 'Platinum', color: '#00B0FF' };
-  if (points >= 200) return { label: 'Gold', color: '#FFAB40' };
-  if (points >= 50) return { label: 'Silver', color: '#9E9E9E' };
-  return { label: 'Bronze', color: '#CD7F32' };
-};
+export { rankFor as getRankBadge } from './rules';
 
 const AVATAR_COLORS = [
   ['#00E676', '#00C853'],

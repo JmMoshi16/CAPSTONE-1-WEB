@@ -1,5 +1,3 @@
-import _rules from '../config/rules.json';
-
 export interface UserModel {
   uid: string;
   username: string;
@@ -52,13 +50,15 @@ export interface Redemption {
   redemptionCode: string;
 }
 
+// qr_tokens/{uuid} as the kiosk writes it (app.py). Points are not stored: they follow from wasteType.
 export interface QRToken {
   id?: string;
-  token: string;
   wasteType: 'Biodegradable' | 'Recyclable' | 'Residual';
-  expiresAt: string;
+  claimCode: string;  // 4 digits, shown on the receipt as ECO-dddd
+  isUsed: boolean;
   usedBy: string[];
   createdAt: string;
+  expiresAt: string;
 }
 
 export interface QRScanRecord {
@@ -76,33 +76,22 @@ export interface QRScanRecord {
   secondsAfterCreation: number;
 }
 
+// bins/{kioskId}-bio|rec|res, written by the kiosk from the ESP32's FILL lines (see lib/kiosks.ts).
 export interface BinStatus {
   binId: string;
   location: string;
   fillLevel: number;
   status: 'online' | 'offline';
   lastUpdated: string;
-  temperature?: number;
-  batteryLevel?: number;
 }
 
-export interface AppSettings {
-  pointsBiodegradable: number;
-  pointsRecyclable: number;
-  pointsResidual: number;
-  qrExpiryMinutes: number;
-  maxBinFillAlert: number;
-  updatedAt?: string;
+// kiosks/{kioskId}: the kiosk's 30 s heartbeat.
+export interface KioskStatus {
+  kioskId: string;
+  name: string;
+  status: 'online' | 'offline';
+  lastSeen: string;
 }
-
-// Derive defaults from canonical rules.json so this file never holds a duplicate constant (audit M-24)
-export const DEFAULT_SETTINGS: AppSettings = {
-  pointsBiodegradable: _rules.points.Biodegradable,
-  pointsRecyclable:    _rules.points.Recyclable,
-  pointsResidual:      _rules.points.Residual,
-  qrExpiryMinutes:     _rules.qrExpiryMinutes,
-  maxBinFillAlert: 80,
-};
 
 export type WasteType = 'Biodegradable' | 'Recyclable' | 'Residual';
 export type RewardCategory = 'Coffee' | 'Food' | 'Discount' | 'Other';

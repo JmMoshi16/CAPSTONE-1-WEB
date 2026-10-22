@@ -2,211 +2,78 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, Save, RotateCcw } from 'lucide-react';
-import { subscribeToSettings, saveSettings } from '@/lib/firebaseService';
-import { AppSettings, DEFAULT_SETTINGS } from '@/lib/types';
-import toast from 'react-hot-toast';
-import { useLoadTimeout } from '@/lib/useLoadTimeout';
-import { fmtDate } from '@/lib/dates';
+import { Settings as SettingsIcon, Lock } from 'lucide-react';
+import { RULES } from '@/lib/rules';
 
+// Read-only on purpose: the kiosk (app.py) and the phone app take these values from config/rules.json,
+// not from Firestore, so an editable form here would change nothing for real scans.
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [form, setForm] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const error = useLoadTimeout(loading);
-
-  useEffect(() => {
-    const unsub = subscribeToSettings(data => {
-      setSettings(data);
-      setForm(data);
-      setLoading(false);
-    });
-    return () => { unsub(); };
-  }, []);
-
-  const isDirty = JSON.stringify(form) !== JSON.stringify(settings);
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      await saveSettings(form);
-      toast.success('Settings saved');
-    } catch {
-      toast.error('Failed to save settings');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleReset = () => setForm(settings);
-
-  const update = (key: keyof AppSettings, value: number) =>
-    setForm(prev => ({ ...prev, [key]: value }));
-
-  if (error) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <SettingsIcon className="w-16 h-16 text-red-400" />
-          <p className="text-white font-bold text-lg">Failed to load settings</p>
-          <p className="text-white/40 text-sm">Check your Firebase connection and try again.</p>
-          <button onClick={() => window.location.reload()} className="px-6 py-2 bg-green/10 border border-green/30 rounded-xl text-green font-bold hover:bg-green/20 transition">Retry</button>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-green" />
-      </div>
-    );
-  }
+  const multipliers = RULES.streakMultipliers.map(m =>
+    ({ label: m.maxDays === null ? `${m.minDays}+ day streak` : `${m.minDays}–${m.maxDays} day streak`, value: `×${m.multiplier}` }));
 
   return (
     <div className="max-w-2xl space-y-6">
       <div className="bg-card border border-border rounded-card p-6">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-white/5 border border-border flex items-center justify-center">
+          <div className="w-12 h-12 rounded-xl bg-white/5 border border-border flex items-center justify-center shrink-0">
             <SettingsIcon className="w-6 h-6 text-white/60" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-white">Settings</h1>
-            <p className="text-white/40 text-sm">System configuration — changes apply to this web panel only</p>
+            <p className="text-white/40 text-sm">The rules the kiosk and the phone app use right now</p>
           </div>
         </div>
       </div>
 
-      <form onSubmit={handleSave} className="space-y-6">
-        {/* Points Configuration */}
-        <div className="bg-card border border-border rounded-card p-6">
-          <h2 className="text-white font-bold mb-1">Points per Waste Type</h2>
-          <p className="text-white/40 text-sm mb-5">How many eco-points customers earn per disposal</p>
-          <div className="space-y-4">
-            <SettingRow
-              label="Biodegradable"
-              description="Organic / food waste"
-              color="#8BC34A"
-              value={form.pointsBiodegradable}
-              onChange={v => update('pointsBiodegradable', v)}
-            />
-            <SettingRow
-              label="Recyclable"
-              description="Plastic, paper, metal"
-              color="#00B0FF"
-              value={form.pointsRecyclable}
-              onChange={v => update('pointsRecyclable', v)}
-            />
-            <SettingRow
-              label="Residual"
-              description="Non-recyclable waste"
-              color="#EF5350"
-              value={form.pointsResidual}
-              onChange={v => update('pointsResidual', v)}
-            />
-          </div>
-        </div>
+      <Section title="Points per Waste Type" subtitle="Base eco-points for one confirmed deposit">
+        <Row label="Biodegradable" description="Organic / food waste" color="#8BC34A" value={RULES.points.Biodegradable} unit="pts" />
+        <Row label="Recyclable" description="Plastic, paper, metal" color="#00B0FF" value={RULES.points.Recyclable} unit="pts" />
+        <Row label="Residual" description="Non-recyclable waste" color="#EF5350" value={RULES.points.Residual} unit="pts" />
+      </Section>
 
-        {/* QR & Bin Settings */}
-        <div className="bg-card border border-border rounded-card p-6">
-          <h2 className="text-white font-bold mb-1">System Settings</h2>
-          <p className="text-white/40 text-sm mb-5">QR token expiry and bin alert thresholds</p>
-          <div className="space-y-4">
-            <SettingRow
-              label="QR Code Expiry"
-              description="Minutes before a generated QR token expires"
-              color="#B388FF"
-              value={form.qrExpiryMinutes}
-              onChange={v => update('qrExpiryMinutes', v)}
-              unit="min"
-              min={5}
-              max={60}
-            />
-            <SettingRow
-              label="Bin Fill Alert"
-              description="Alert threshold for bin fill level"
-              color="#FFAB40"
-              value={form.maxBinFillAlert}
-              onChange={v => update('maxBinFillAlert', v)}
-              unit="%"
-              min={50}
-              max={100}
-            />
-          </div>
-        </div>
+      <Section title="Streak Bonus" subtitle="The phone app multiplies the base points by the customer's daily streak">
+        {multipliers.map(m => <Row key={m.label} label={m.label} color="#FFAB40" value={m.value} />)}
+      </Section>
 
-        {/* Last updated */}
-        {settings.updatedAt && (
-          <p className="text-white/30 text-xs px-1">
-            Last saved: {fmtDate(settings.updatedAt, 'MMM d, yyyy h:mm a', 'never')}
-          </p>
-        )}
+      <Section title="Kiosk" subtitle="QR receipts and bin alerts">
+        <Row label="QR Code Expiry" description="Minutes a receipt's QR / claim code stays valid" color="#B388FF" value={RULES.qrExpiryMinutes} unit="min" />
+        <Row label="Bin Warning" description="The kiosk shows a warning; the Bins page turns amber" color="#FFAB40" value={RULES.bin_warn_pct} unit="%" />
+        <Row label="Bin Full" description="The kiosk pauses until the bin is emptied" color="#EF5350" value={RULES.bin_full_pct} unit="%" />
+      </Section>
 
-        {/* Actions */}
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={handleReset}
-            disabled={!isDirty}
-            className="flex items-center gap-2 px-5 py-3 border border-border rounded-btn text-white/60 hover:text-white hover:border-white/30 transition disabled:opacity-30 text-sm font-medium"
-          >
-            <RotateCcw className="w-4 h-4" />
-            Reset
-          </button>
-          <button
-            type="submit"
-            disabled={saving || !isDirty}
-            className="flex-1 flex items-center justify-center gap-2 bg-green hover:bg-dark-green text-black font-bold py-3 rounded-btn transition disabled:opacity-50"
-          >
-            <Save className="w-4 h-4" />
-            {saving ? 'Saving...' : 'Save Settings'}
-          </button>
-        </div>
-      </form>
+      <div className="flex gap-3 p-4 bg-card border border-border rounded-card text-sm text-white/50">
+        <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+        <p>
+          To change a value, edit <code className="text-green/70 bg-green/10 px-1.5 py-0.5 rounded text-xs">config/rules.json</code> in
+          the kiosk repo and copy it to the web and Flutter repos (the kiosk&apos;s ConfigParityTest checks they match), then restart the kiosk.
+        </p>
+      </div>
     </div>
   );
 }
 
-interface SettingRowProps {
-  label: string;
-  description: string;
-  color: string;
-  value: number;
-  onChange: (v: number) => void;
-  unit?: string;
-  min?: number;
-  max?: number;
-}
-function SettingRow({ label, description, color, value, onChange, unit = 'pts', min = 1, max = 999 }: SettingRowProps) {
-  const isInvalid = value < min || value > max;
+function Section({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
-    <div className={`flex items-center justify-between gap-4 p-4 bg-bg border rounded-xl transition-colors ${isInvalid ? 'border-red-500/50' : 'border-border'}`}>
-      <div className="flex items-center gap-3 flex-1 min-w-0">
+    <div className="bg-card border border-border rounded-card p-6">
+      <h2 className="text-white font-bold mb-1">{title}</h2>
+      <p className="text-white/40 text-sm mb-5">{subtitle}</p>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function Row({ label, description, color, value, unit }: { label: string; description?: string; color: string; value: number | string; unit?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 p-4 bg-bg border border-border rounded-xl">
+      <div className="flex items-center gap-3 min-w-0">
         <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
         <div className="min-w-0">
           <div className="text-white font-semibold text-sm">{label}</div>
-          <div className="text-white/40 text-xs">{description}</div>
-          {isInvalid && (
-            <div className="text-red-400 text-xs mt-0.5">Must be between {min} and {max}</div>
-          )}
+          {description && <div className="text-white/40 text-xs">{description}</div>}
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <input
-          type="number"
-          value={value}
-          onChange={e => onChange(Math.max(min, Math.min(max, parseInt(e.target.value) || min)))}
-          min={min}
-          max={max}
-          className={`w-20 bg-card border rounded-btn px-3 py-2 text-white text-sm text-center focus:outline-none transition ${
-            isInvalid ? 'border-red-500 focus:border-red-400' : 'border-border focus:border-green'
-          }`}
-        />
-        <span className="text-white/40 text-xs w-6">{unit}</span>
+      <div className="shrink-0 text-white font-bold tabular-nums">
+        {value}{unit && <span className="text-white/40 text-xs font-normal ml-1">{unit}</span>}
       </div>
     </div>
   );
