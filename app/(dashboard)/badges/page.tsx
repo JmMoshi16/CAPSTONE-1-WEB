@@ -10,10 +10,12 @@ import { getAvatarColor } from '@/lib/utils';
 import { BADGES } from '@/lib/rules';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import StatPill from '@/components/StatPill';
+import PageLoader from '@/components/PageLoader';
+import LoadError from '@/components/LoadError';
 
 // Badge rules come from config/rules.json (what the phone app awards); only the colours are the web's.
 const BADGE_COLORS: Record<string, string> = {
-  first_scan: '#8BC34A', scan_5: '#00B0FF', scan_10: '#4CAF50', scan_25: '#FFAB40', scan_50: '#FF6D00',
+  first_scan: '#8BC34A', scan_5: '#00B0FF', scan_10: '#4CAF50', scan_25: '#E2AE68', scan_50: '#FF6D00',
   pts_50: '#FFC107', pts_100: '#FF9800', pts_500: '#00B0FF', streak_3: '#FF5722', streak_7: '#9C27B0',
 };
 const BADGE_DEFS = BADGES.map(b => ({ ...b, color: BADGE_COLORS[b.id] ?? '#9E9E9E' }));
@@ -50,31 +52,10 @@ export default function BadgesPage() {
     return { totalBadgesAwarded, usersWithBadges, badgeCounts, topEarners };
   }, [customers]);
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <Award className="w-16 h-16 text-red-400" />
-          <p className="text-white font-bold text-lg">Failed to load badges</p>
-          <p className="text-white/40 text-sm">Check your Firebase connection and try again.</p>
-          <button onClick={() => window.location.reload()} className="px-6 py-2 bg-yellow-400/10 border border-yellow-400/30 rounded-xl text-yellow-400 font-bold hover:bg-yellow-400/20 transition">Retry</button>
-        </div>
-      </div>
-    );
-  }
+  if (error) return <LoadError what="badges" />;
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative">
-            <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-yellow-400" />
-            <Award className="w-6 h-6 text-yellow-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-          </div>
-          <p className="text-white/60 text-sm">Loading badges...</p>
-        </div>
-      </div>
-    );
+    return <PageLoader what="badges" />;
   }
 
   return (
@@ -84,8 +65,8 @@ export default function BadgesPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-yellow-400/5 via-transparent to-purple-400/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
         <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-yellow-400 to-amber-600 flex items-center justify-center shadow-2xl shadow-yellow-400/30 group-hover:scale-110 group-hover:rotate-12 transition-all duration-500">
-              <Award className="w-7 h-7 text-white" />
+            <div className="w-14 h-14 rounded-2xl bg-forest/60 ring-1 ring-green/25 flex items-center justify-center shrink-0">
+              <Award className="w-7 h-7 text-green" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-white mb-1">Badge Management</h1>
@@ -93,8 +74,8 @@ export default function BadgesPage() {
             </div>
           </div>
           <div className="flex gap-3 flex-wrap">
-            <StatPill icon={Award} label="Total Awarded" value={stats.totalBadgesAwarded} color="#FFAB40" />
-            <StatPill icon={Users} label="Users with Badges" value={stats.usersWithBadges} color="#00E676" />
+            <StatPill icon={Award} label="Total Awarded" value={stats.totalBadgesAwarded} color="#E2AE68" />
+            <StatPill icon={Users} label="Users with Badges" value={stats.usersWithBadges} color="#7CCFA5" />
           </div>
         </div>
       </div>
@@ -190,7 +171,7 @@ function BadgeCard({ badge }: { badge: typeof BADGE_DEFS[0] & { count: number; p
   return (
     <div
       className="bg-card border rounded-2xl p-5 flex flex-col items-center text-center hover:scale-105 transition-all duration-300 group"
-      style={{ borderColor: unlocked ? `${badge.color}40` : '#30363D' }}
+      style={{ borderColor: unlocked ? `${badge.color}40` : '#2A342D' }}
     >
       <div
         className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl mb-3 group-hover:scale-110 transition-transform"

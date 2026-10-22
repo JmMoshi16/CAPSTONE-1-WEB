@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { useEffect, useState, useMemo, type ElementType } from 'react';
 import Link from 'next/link';
-import { Recycle, Users, Star, Receipt, TrendingUp, TrendingDown, Clock, Activity, ArrowUpRight, ArrowDownRight, Target, Award, Leaf, BarChart3, Trophy } from 'lucide-react';
+import { Recycle, Users, Star, Receipt, TrendingUp, Clock, Activity, ArrowUpRight, ArrowDownRight, Target, Award, Leaf, BarChart3, Trophy } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { subscribeToRecentWasteLogs, subscribeToWasteLogs, subscribeToLeaderboard, getAdminStats, type AdminStats } from '@/lib/firebaseService';
 import { UserModel, WasteLog, WasteType, lifetimeOf, creditedOf } from '@/lib/types';
@@ -12,6 +12,8 @@ import { toDate } from '@/lib/dates';
 import { format, subDays, startOfDay, isToday, isYesterday, startOfWeek, startOfMonth } from 'date-fns';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import LoadError from '@/components/LoadError';
+import PageLoader from '@/components/PageLoader';
+import CountUp from '@/components/CountUp';
 
 type TimeRange = 'today' | 'week' | 'month' | 'all';
 const TIME_RANGES: TimeRange[] = ['today', 'week', 'month', 'all'];
@@ -91,7 +93,6 @@ export default function DashboardPage() {
     const bio = typeCount.Biodegradable, rec = typeCount.Recyclable, res = typeCount.Residual;
     const pendingRedemptions = stats?.pendingRedemptions ?? 0;
     const redemptionTotal = stats?.redemptions ?? 0;
-    const co2Saved = inRange * 0.5;
 
     return {
       totalDisposals: inRange,
@@ -118,79 +119,50 @@ export default function DashboardPage() {
       redemptionTotal,
       claimedRedemptions: redemptionTotal - pendingRedemptions,
       redemptionRate: pct(redemptionTotal, inRange),
-      co2Saved,
-      treesEquivalent: Math.floor(co2Saved / 21),
     };
   }, [logs, customers, stats, timeRange]);
 
   if (error) return <LoadError what="the dashboard" />;
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative">
-            <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-green" />
-            <Recycle className="w-6 h-6 text-green absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-          </div>
-          <p className="text-white/60 text-sm">Loading dashboard analytics...</p>
-        </div>
-      </div>
-    );
+    return <PageLoader what="the dashboard" />;
   }
 
   return (
     <div className="space-y-6 pb-8">
-      {/* Header Section */}
-      <div className="bg-gradient-to-br from-card via-card to-card/50 border border-border rounded-2xl p-6 hover:border-green/30 transition-all duration-500 group relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-green/5 via-transparent to-blue/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-        <div className="relative z-10">
-          <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-green via-green to-dark-green flex items-center justify-center shadow-2xl shadow-green/30 group-hover:scale-110 group-hover:rotate-12 transition-all duration-500">
-                <Recycle className="w-7 h-7 text-black" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-white mb-1">ECOReward Dashboard</h1>
-                <p className="text-white/50 text-sm flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-green animate-pulse" />
-                  Real-time Business Intelligence & Analytics
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="px-4 py-2 bg-green/10 border border-green/30 rounded-full backdrop-blur-sm">
-                <span className="text-green text-sm font-bold flex items-center gap-2">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green" />
-                  </span>
-                  Live
-                </span>
-              </div>
-              <div className="text-white/40 text-sm font-medium">{format(new Date(), 'MMM dd, yyyy • HH:mm')}</div>
-            </div>
-          </div>
-
-          {/* Quick Stats Bar */}
-          {/* Change badges compare today with yesterday and only appear when there is a yesterday to compare with. */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-            <QuickStat label="Scans today" value={analytics.todayDisposals} change={analytics.disposalChange} />
-            <QuickStat label="Active this week" value={`${analytics.activeUsers} (${analytics.activeRate.toFixed(0)}%)`} />
-            <QuickStat label="Avg lifetime pts/user" value={Math.round(analytics.avgPointsPerUser)} />
-            <QuickStat label="Points credited today" value={analytics.dailyTrend[13]?.points ?? 0} change={analytics.pointsChange} />
-          </div>
+      {/* Header: what day it is, what this is, and that it is live. */}
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="eyebrow">{format(new Date(), 'EEEE, MMMM d')}</div>
+          <h1 className="text-4xl lg:text-[44px] text-white mt-2">ECOReward Dashboard</h1>
+          <p className="text-white/50 text-sm mt-2 flex items-center gap-2">
+            <span className="relative flex h-2 w-2" aria-hidden>
+              <span className="absolute inline-flex h-full w-full rounded-full bg-green animate-breathe" />
+            </span>
+            Live: numbers update as scans arrive
+          </p>
         </div>
-      </div>
+        <Link href="/bins" className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.04] ring-1 ring-border text-sm text-white/70 hover:text-white hover:ring-green/30 transition">
+          Check the bins <ArrowUpRight className="w-4 h-4" aria-hidden />
+        </Link>
+      </header>
+
+      {/* Today at a glance. Change badges compare with yesterday and only appear when there is a yesterday. */}
+      <section aria-label="Today" className="bg-card border border-border rounded-2xl grid grid-cols-3 divide-x divide-border">
+        <QuickStat label="Scans today" value={analytics.todayDisposals} change={analytics.disposalChange} />
+        <QuickStat label="Points credited today" value={analytics.dailyTrend[13]?.points ?? 0} change={analytics.pointsChange} />
+        <QuickStat label="Rewards to hand out" value={analytics.pendingRedemptions}
+          note={analytics.pendingRedemptions > 0 ? 'Waiting at the counter' : 'All handed out'} href="/rewards" />
+      </section>
 
       {/* Main KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <KPICard
           icon={Recycle}
           label="Total Disposals"
           value={analytics.totalDisposals}
           subtitle={`${analytics.todayDisposals} today`}
-          color="#00E676"
+          color="#7CCFA5"
           trend={analytics.disposalChange}
         />
         <KPICard
@@ -205,7 +177,7 @@ export default function DashboardPage() {
           label="Lifetime Points Earned"
           value={analytics.totalPoints}
           subtitle={`Avg ${Math.round(analytics.avgPointsPerUser)}/customer`}
-          color="#FFAB40"
+          color="#E2AE68"
         />
         <KPICard
           icon={Receipt}
@@ -249,23 +221,23 @@ export default function DashboardPage() {
             <AreaChart data={analytics.dailyTrend}>
               <defs>
                 <linearGradient id="colorDisposals" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#00E676" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#00E676" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#7CCFA5" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#7CCFA5" stopOpacity={0}/>
                 </linearGradient>
                 <linearGradient id="colorPoints" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#FFAB40" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#FFAB40" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#E2AE68" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#E2AE68" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#30363D" />
-              <XAxis dataKey="date" stroke="#ffffff40" style={{ fontSize: '11px' }} />
-              <YAxis stroke="#ffffff40" style={{ fontSize: '11px' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
+              <XAxis dataKey="date" stroke="#F2EDE340" style={{ fontSize: '11px' }} />
+              <YAxis stroke="#F2EDE340" style={{ fontSize: '11px' }} />
               <Tooltip
-                contentStyle={{ backgroundColor: '#161B22', border: '1px solid #30363D', borderRadius: '12px', padding: '12px' }}
-                labelStyle={{ color: '#fff', fontWeight: 'bold', marginBottom: '8px' }}
+                contentStyle={{ backgroundColor: '#161D18', border: '1px solid #2A342D', borderRadius: '12px', padding: '12px' }}
+                labelStyle={{ color: '#F2EDE3', fontWeight: 'bold', marginBottom: '8px' }}
               />
-              <Area type="monotone" dataKey="disposals" stroke="#00E676" strokeWidth={3} fill="url(#colorDisposals)" />
-              <Area type="monotone" dataKey="points" stroke="#FFAB40" strokeWidth={2} fill="url(#colorPoints)" />
+              <Area type="monotone" dataKey="disposals" stroke="#7CCFA5" strokeWidth={3} fill="url(#colorDisposals)" />
+              <Area type="monotone" dataKey="points" stroke="#E2AE68" strokeWidth={2} fill="url(#colorPoints)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -286,14 +258,14 @@ export default function DashboardPage() {
                 cy="50%"
                 innerRadius={60}
                 outerRadius={90}
-                paddingAngle={5}
+                paddingAngle={analytics.wastePerformance.filter(w => w.count > 0).length > 1 ? 5 : 0}
               >
                 {analytics.wastePerformance.map((entry, index) => (
                   <Cell key={index} fill={entry.color} />
                 ))}
               </Pie>
               <Tooltip
-                contentStyle={{ backgroundColor: '#161B22', border: '1px solid #30363D', borderRadius: '12px' }}
+                contentStyle={{ backgroundColor: '#161D18', border: '1px solid #2A342D', borderRadius: '12px' }}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -321,45 +293,38 @@ export default function DashboardPage() {
           </h3>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={analytics.hourlyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#30363D" />
-              <XAxis dataKey="hour" stroke="#ffffff40" style={{ fontSize: '10px' }} interval={2} />
-              <YAxis stroke="#ffffff40" style={{ fontSize: '11px' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
+              <XAxis dataKey="hour" stroke="#F2EDE340" style={{ fontSize: '10px' }} interval={2} />
+              <YAxis stroke="#F2EDE340" style={{ fontSize: '11px' }} />
               <Tooltip
-                contentStyle={{ backgroundColor: '#161B22', border: '1px solid #30363D', borderRadius: '12px' }}
+                contentStyle={{ backgroundColor: '#161D18', border: '1px solid #2A342D', borderRadius: '12px' }}
               />
-              <Bar dataKey="count" fill="#FFAB40" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="count" fill="#E2AE68" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Environmental Impact */}
-        <div className="bg-gradient-to-br from-green/10 via-card to-card border border-green/30 rounded-2xl p-6 hover:border-green/50 transition-all duration-300">
-          <h3 className="text-white font-bold text-lg mb-6 flex items-center gap-2">
+        {/* Sorting quality, counted from scans. No CO2 figure: items are not weighed per scan yet, and the old
+            0.5 kg/item factor had no source (same decision as the phone app). */}
+        <div className="bg-card border border-border rounded-2xl p-6 card-lift">
+          <h3 className="text-white font-bold text-lg mb-1 flex items-center gap-2">
             <Leaf className="w-5 h-5 text-green" />
-            Environmental Impact
+            Kept out of residual
           </h3>
-          <div className="space-y-6">
-            <ImpactMetric
-              icon={Leaf}
-              label="CO₂ Saved"
-              value={`${analytics.co2Saved.toFixed(1)} kg`}
-              color="#00E676"
-              description="Equivalent to planting trees"
-            />
-            <ImpactMetric
-              icon={Award}
-              label="Trees Equivalent"
-              value={`${analytics.treesEquivalent} trees`}
-              color="#8BC34A"
-              description="Annual CO₂ absorption"
-            />
-            <ImpactMetric
-              icon={Target}
-              label="Waste Diverted"
-              value={analytics.totalDisposals > 0 ? `${((analytics.bio + analytics.rec) / analytics.totalDisposals * 100).toFixed(1)}%` : '0.0%'}
-              color="#00B0FF"
-              description="From landfills"
-            />
+          <p className="text-white/40 text-sm mb-6">Items sorted as recyclable or biodegradable, in the selected period</p>
+          <div className="flex items-end gap-3 mb-6">
+            <div className="numeral text-6xl text-green">
+              <CountUp value={analytics.totalDisposals > 0 ? (analytics.bio + analytics.rec) / analytics.totalDisposals * 100 : 0}
+                format={n => `${n.toFixed(0)}%`} />
+            </div>
+            <div className="text-white/50 text-sm pb-2">
+              {(analytics.bio + analytics.rec).toLocaleString()} of {analytics.totalDisposals.toLocaleString()} items
+            </div>
+          </div>
+          <div className="space-y-4">
+            <ImpactMetric icon={Leaf} label="Biodegradable" value={analytics.bio.toLocaleString()} color="#8BC34A" description="Sorted for composting" />
+            <ImpactMetric icon={Recycle} label="Recyclable" value={analytics.rec.toLocaleString()} color="#00B0FF" description="Sorted for recycling" />
+            <ImpactMetric icon={Target} label="Residual" value={analytics.res.toLocaleString()} color="#EF5350" description="Went to general waste" />
           </div>
         </div>
       </div>
@@ -408,9 +373,9 @@ export default function DashboardPage() {
           </h3>
           <div className="space-y-4">
             <HealthMetric label="Customers active this week" status={`${analytics.activeUsers} of ${analytics.totalCustomers}`} color="#00B0FF" percentage={analytics.activeRate} />
-            <HealthMetric label="Redemptions waiting to be handed out" status={`${analytics.pendingRedemptions} pending`} color="#FFAB40"
+            <HealthMetric label="Redemptions waiting to be handed out" status={`${analytics.pendingRedemptions} pending`} color="#E2AE68"
               percentage={analytics.redemptionTotal > 0 ? (analytics.pendingRedemptions / analytics.redemptionTotal) * 100 : 0} />
-            <HealthMetric label="Redemptions handed out" status={`${analytics.claimedRedemptions} claimed`} color="#00E676"
+            <HealthMetric label="Redemptions handed out" status={`${analytics.claimedRedemptions} claimed`} color="#7CCFA5"
               percentage={analytics.redemptionTotal > 0 ? (analytics.claimedRedemptions / analytics.redemptionTotal) * 100 : 0} />
             <p className="text-white/30 text-xs">Data connection: live (Firestore listeners). Kiosk status: see Bin Management.</p>
           </div>
@@ -421,45 +386,49 @@ export default function DashboardPage() {
 }
 
 // Components
-function QuickStat({ label, value, change }: { label: string; value: number | string; change?: number }) {
-  const isPositive = (change ?? 0) >= 0;
+function Trend({ change, title }: { change: number; title: string }) {
+  const up = change >= 0;
   return (
-    <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl hover:bg-white/10 transition-all">
-      <div>
-        <div className="text-white/50 text-xs mb-1">{label}</div>
-        <div className="text-white font-bold text-lg">{value}</div>
-      </div>
-      {change !== undefined && (
-        <div className={`flex items-center gap-1 text-xs font-semibold ${isPositive ? 'text-green' : 'text-red'}`} title="vs yesterday">
-          {isPositive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-          {Math.abs(change).toFixed(1)}%
-        </div>
-      )}
-    </div>
+    <span title={title}
+      className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-semibold ${up ? 'bg-green/10 text-green' : 'bg-res/10 text-res'}`}>
+      {up ? <ArrowUpRight className="w-3 h-3" aria-hidden /> : <ArrowDownRight className="w-3 h-3" aria-hidden />}
+      <span className="sr-only">{up ? 'up' : 'down'} </span>{Math.abs(change).toFixed(1)}%
+    </span>
   );
 }
 
-interface KPICardProps { icon: ElementType; label: string; value: number | string; subtitle: string; color: string; trend?: number }
+function QuickStat({ label, value, change, note, href }: { label: string; value: number; change?: number; note?: string; href?: string }) {
+  const body = (
+    <>
+      <div className="text-white/50 text-xs mb-2">{label}</div>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="numeral text-3xl text-white"><CountUp value={value} /></span>
+        {change !== undefined && <Trend change={change} title="vs yesterday" />}
+      </div>
+      {note && <div className="text-white/40 text-xs mt-1">{note}</div>}
+    </>
+  );
+  return href
+    ? <Link href={href} className="block p-4 sm:p-5 hover:bg-white/[0.03] transition-colors first:rounded-l-2xl last:rounded-r-2xl">{body}</Link>
+    : <div className="p-4 sm:p-5">{body}</div>;
+}
+
+interface KPICardProps { icon: ElementType; label: string; value: number; subtitle: string; color: string; trend?: number }
 function KPICard({ icon: Icon, label, value, subtitle, color, trend }: KPICardProps) {
-  const isPositive = (trend ?? 0) >= 0;
   return (
-    <div className="bg-card border border-border rounded-2xl p-5 hover:scale-105 hover:shadow-2xl transition-all duration-300 group cursor-pointer relative overflow-hidden">
-      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: `linear-gradient(135deg, ${color}10, transparent)` }} />
-      <div className="relative z-10">
-        <div className="flex items-center justify-between mb-4">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300" style={{ backgroundColor: `${color}20` }}>
-            <Icon className="w-6 h-6" style={{ color }} />
+    <div className="bg-card border border-border rounded-2xl p-4 sm:p-5 card-lift relative overflow-hidden">
+      {/* a faint wash of the card's colour from the corner */}
+      <div className="absolute -top-16 -right-16 w-40 h-40 rounded-full blur-2xl opacity-[0.12]" style={{ backgroundColor: color }} aria-hidden />
+      <div className="relative">
+        <div className="flex items-center justify-between mb-5">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${color}1F` }}>
+            <Icon className="w-5 h-5" style={{ color }} aria-hidden />
           </div>
-          {trend !== undefined && (
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold ${isPositive ? 'bg-green/20 text-green' : 'bg-red/20 text-red'}`} title="today vs yesterday">
-              {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-              {Math.abs(trend).toFixed(1)}%
-            </div>
-          )}
+          {trend !== undefined && <Trend change={trend} title="today vs yesterday" />}
         </div>
-        <div className="text-3xl font-bold text-white mb-1">{typeof value === 'number' ? value.toLocaleString() : value}</div>
-        <div className="text-white/40 text-xs">{label}</div>
-        <div className="text-white/60 text-xs mt-2">{subtitle}</div>
+        <div className="numeral text-3xl sm:text-[40px] text-white"><CountUp value={value} /></div>
+        <div className="text-white/70 text-sm font-medium mt-2">{label}</div>
+        <div className="text-white/40 text-xs mt-1">{subtitle}</div>
       </div>
     </div>
   );
@@ -467,15 +436,15 @@ function KPICard({ icon: Icon, label, value, subtitle, color, trend }: KPICardPr
 
 function ImpactMetric({ icon: Icon, label, value, color, description }: { icon: ElementType; label: string; value: string; color: string; description: string }) {
   return (
-    <div className="flex items-start gap-4">
-      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${color}20` }}>
-        <Icon className="w-5 h-5" style={{ color }} />
+    <div className="flex items-center gap-4">
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${color}1F` }}>
+        <Icon className="w-4 h-4" style={{ color }} aria-hidden />
       </div>
-      <div className="flex-1">
-        <div className="text-white/60 text-sm mb-1">{label}</div>
-        <div className="text-2xl font-bold mb-1" style={{ color }}>{value}</div>
+      <div className="flex-1 min-w-0">
+        <div className="text-white/80 text-sm">{label}</div>
         <div className="text-white/40 text-xs">{description}</div>
       </div>
+      <div className="numeral text-xl" style={{ color }}>{value}</div>
     </div>
   );
 }

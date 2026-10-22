@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/AuthContext';
+import BrandSplash from '@/components/BrandSplash';
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, isAdmin, loading } = useAuth();
@@ -15,14 +16,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [loading, user, isAdmin, router]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-bg flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green" />
-          <p className="text-white/40 text-sm">Verifying access...</p>
-        </div>
-      </div>
-    );
+    return <BrandSplash label="Checking your access…" />;
   }
 
   if (!user || !isAdmin) return null;

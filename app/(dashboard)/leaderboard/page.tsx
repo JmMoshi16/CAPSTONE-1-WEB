@@ -10,6 +10,7 @@ import { getAvatarColor } from '@/lib/utils';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import StatPill from '@/components/StatPill';
 import LoadError from '@/components/LoadError';
+import PageLoader from '@/components/PageLoader';
 
 import { BADGES as BADGE_DEFS, rankFor as getRankTier } from '@/lib/rules';
 
@@ -41,17 +42,7 @@ export default function LeaderboardPage() {
   if (error) return <LoadError what="the leaderboard" />;
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative">
-            <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-yellow-400" />
-            <Trophy className="w-6 h-6 text-yellow-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-          </div>
-          <p className="text-white/60 text-sm">Loading leaderboard...</p>
-        </div>
-      </div>
-    );
+    return <PageLoader what="the leaderboard" />;
   }
 
   return (
@@ -61,8 +52,8 @@ export default function LeaderboardPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-yellow-400/5 via-transparent to-orange-400/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
         <div className="relative z-10 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center shadow-2xl shadow-yellow-400/30 group-hover:scale-110 group-hover:rotate-12 transition-all duration-500">
-              <Trophy className="w-7 h-7 text-white" />
+            <div className="w-14 h-14 rounded-2xl bg-forest/60 ring-1 ring-green/25 flex items-center justify-center shrink-0">
+              <Trophy className="w-7 h-7 text-green" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-white mb-1">Leaderboard</h1>
@@ -70,8 +61,8 @@ export default function LeaderboardPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-4">
-            <StatPill icon={Star} label="Lifetime Points" value={totalPoints.toLocaleString()} color="#FFAB40" />
-            <StatPill icon={Recycle} label="Total Scans" value={totalScans.toLocaleString()} color="#00E676" />
+            <StatPill icon={Star} label="Lifetime Points" value={totalPoints.toLocaleString()} color="#E2AE68" />
+            <StatPill icon={Recycle} label="Total Scans" value={totalScans.toLocaleString()} color="#7CCFA5" />
             <StatPill icon={Flame} label="Top Streak" value={`${topStreak}d`} color="#FF6D00" />
           </div>
         </div>
@@ -84,7 +75,7 @@ export default function LeaderboardPage() {
             {/* 2nd */}
             <PodiumCard user={top3[1]} rank={2} height="h-28" medal="🥈" color="#9E9E9E" onClick={() => setSelected(top3[1])} />
             {/* 1st */}
-            <PodiumCard user={top3[0]} rank={1} height="h-40" medal="🥇" color="#FFAB40" crown onClick={() => setSelected(top3[0])} />
+            <PodiumCard user={top3[0]} rank={1} height="h-40" medal="🥇" color="#E2AE68" crown onClick={() => setSelected(top3[0])} />
             {/* 3rd */}
             <PodiumCard user={top3[2]} rank={3} height="h-20" medal="🥉" color="#CD7F32" onClick={() => setSelected(top3[2])} />
           </div>
@@ -230,9 +221,9 @@ function UserDetailDrawer({ user, onClose }: { user: UserModel; onClose: () => v
         <div className="p-6 space-y-6">
           {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <MiniStat icon={Star} label="Lifetime" value={lifetimeOf(user)} color="#FFAB40" />
+            <MiniStat icon={Star} label="Lifetime" value={lifetimeOf(user)} color="#E2AE68" />
             <MiniStat icon={Star} label="Balance" value={user.points ?? 0} color="#FFD54F" />
-            <MiniStat icon={Recycle} label="Scans" value={user.scanCount ?? 0} color="#00E676" />
+            <MiniStat icon={Recycle} label="Scans" value={user.scanCount ?? 0} color="#7CCFA5" />
             <MiniStat icon={Flame} label="Streak" value={`${user.streak ?? 0}d`} color="#FF6D00" />
           </div>
 

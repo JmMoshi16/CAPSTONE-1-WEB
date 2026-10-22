@@ -115,8 +115,8 @@ export default function ManualClaimPage() {
       {/* Header */}
       <div className="bg-gradient-to-br from-card via-card to-card/50 border border-border rounded-2xl p-6 hover:border-green/30 transition-all duration-500">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-green to-dark-green flex items-center justify-center shadow-2xl shadow-green/30">
-            <ClipboardCheck className="w-7 h-7 text-black" />
+          <div className="w-14 h-14 rounded-2xl bg-forest/60 ring-1 ring-green/25 flex items-center justify-center shrink-0">
+            <ClipboardCheck className="w-7 h-7 text-green" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-white mb-1">Manual Claim</h1>
@@ -275,7 +275,7 @@ export default function ManualClaimPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-card border border-border rounded-xl p-3 text-center">
-                <Recycle className="w-5 h-5 mx-auto mb-1" style={{ color: WASTE_COLORS[result.wasteType] ?? '#fff' }} />
+                <Recycle className="w-5 h-5 mx-auto mb-1" style={{ color: WASTE_COLORS[result.wasteType] ?? '#F2EDE3' }} />
                 <p className="text-white font-bold text-sm">{result.wasteType}</p>
                 <p className="text-white/40 text-xs">Waste Type</p>
               </div>

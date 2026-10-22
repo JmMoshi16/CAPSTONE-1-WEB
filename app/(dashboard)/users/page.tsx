@@ -12,6 +12,7 @@ import { format, isToday, isYesterday, subDays, startOfWeek } from 'date-fns';
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import LoadError from '@/components/LoadError';
+import PageLoader from '@/components/PageLoader';
 
 // Phase 9: total disposals per customer come from users.scanCount (kept by the app), activity from the
 // shared last-31-days listener, and one customer's full history only when their panel opens.
@@ -116,17 +117,7 @@ export default function UsersPage() {
   if (error) return <LoadError what="users" />;
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative">
-            <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue" />
-            <UsersIcon className="w-6 h-6 text-blue absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-          </div>
-          <p className="text-white/60 text-sm">Loading users...</p>
-        </div>
-      </div>
-    );
+    return <PageLoader what="users" />;
   }
 
   return (
@@ -135,8 +126,8 @@ export default function UsersPage() {
       <div className="bg-gradient-to-br from-card via-card to-card/50 border border-border rounded-2xl p-6 hover:border-blue/30 transition-all duration-500 group">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue to-blue/50 flex items-center justify-center shadow-2xl shadow-blue/30 group-hover:scale-110 transition-all duration-500">
-              <UsersIcon className="w-7 h-7 text-white" />
+            <div className="w-14 h-14 rounded-2xl bg-forest/60 ring-1 ring-green/25 flex items-center justify-center shrink-0">
+              <UsersIcon className="w-7 h-7 text-green" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-white mb-1">Customer Management</h1>
@@ -169,14 +160,14 @@ export default function UsersPage() {
             label="Active Today"
             value={analytics.activeToday}
             subtitle={`${analytics.activeWeek} this week`}
-            color="#00E676"
+            color="#7CCFA5"
           />
           <QuickMetric
             icon={Star}
             label="Avg Lifetime Pts"
             value={Math.round(analytics.avgPoints)}
             subtitle={`${analytics.totalPoints.toLocaleString()} total`}
-            color="#FFAB40"
+            color="#E2AE68"
           />
           <QuickMetric
             icon={Target}
@@ -201,7 +192,7 @@ export default function UsersPage() {
               <Pie
                 data={[
                   { name: 'Platinum', value: analytics.rankDistribution.platinum, color: '#00B0FF' },
-                  { name: 'Gold', value: analytics.rankDistribution.gold, color: '#FFAB40' },
+                  { name: 'Gold', value: analytics.rankDistribution.gold, color: '#E2AE68' },
                   { name: 'Silver', value: analytics.rankDistribution.silver, color: '#9E9E9E' },
                   { name: 'Bronze', value: analytics.rankDistribution.bronze, color: '#CD7F32' },
                 ]}
@@ -210,11 +201,11 @@ export default function UsersPage() {
                 cy="50%"
                 innerRadius={50}
                 outerRadius={80}
-                paddingAngle={3}
+                paddingAngle={Object.values(analytics.rankDistribution).filter(v => v > 0).length > 1 ? 3 : 0}
               >
                 {[
                   { color: '#00B0FF' },
-                  { color: '#FFAB40' },
+                  { color: '#E2AE68' },
                   { color: '#9E9E9E' },
                   { color: '#CD7F32' },
                 ].map((entry, index) => (
@@ -225,7 +216,7 @@ export default function UsersPage() {
           </ResponsiveContainer>
           <div className="grid grid-cols-2 gap-2 mt-4">
             <RankBadge label="Platinum" count={analytics.rankDistribution.platinum} color="#00B0FF" />
-            <RankBadge label="Gold" count={analytics.rankDistribution.gold} color="#FFAB40" />
+            <RankBadge label="Gold" count={analytics.rankDistribution.gold} color="#E2AE68" />
             <RankBadge label="Silver" count={analytics.rankDistribution.silver} color="#9E9E9E" />
             <RankBadge label="Bronze" count={analytics.rankDistribution.bronze} color="#CD7F32" />
           </div>
@@ -485,9 +476,9 @@ function UserDrawer({ user, onClose }: UserDrawerProps) {
         <div className="p-6 space-y-6">
           <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <MiniStat icon={Star} label="Lifetime" value={lifetimeOf(user)} color="#FFAB40" />
+            <MiniStat icon={Star} label="Lifetime" value={lifetimeOf(user)} color="#E2AE68" />
             <MiniStat icon={Star} label="Balance" value={user.points ?? 0} color="#FFD54F" />
-            <MiniStat icon={Recycle} label="Disposals" value={logs.length} color="#00E676" />
+            <MiniStat icon={Recycle} label="Disposals" value={logs.length} color="#7CCFA5" />
             <MiniStat icon={TrendingUp} label="Earned" value={totalEarned} color="#FF6D00" />
           </div>
 
@@ -505,11 +496,11 @@ function UserDrawer({ user, onClose }: UserDrawerProps) {
                     <stop offset="95%" stopColor="#00B0FF" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#30363D" />
-                <XAxis dataKey="day" stroke="#ffffff40" style={{ fontSize: '10px' }} />
-                <YAxis stroke="#ffffff40" style={{ fontSize: '10px' }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
+                <XAxis dataKey="day" stroke="#F2EDE340" style={{ fontSize: '10px' }} />
+                <YAxis stroke="#F2EDE340" style={{ fontSize: '10px' }} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#161B22', border: '1px solid #30363D', borderRadius: '8px' }}
+                  contentStyle={{ backgroundColor: '#161D18', border: '1px solid #2A342D', borderRadius: '8px' }}
                 />
                 <Area type="monotone" dataKey="count" stroke="#00B0FF" strokeWidth={2} fill="url(#colorActivity)" />
               </AreaChart>
@@ -573,7 +564,7 @@ function WasteBar({ label, count, total, color }: { label: string; count: number
 
 function LogItem({ log }: { log: WasteLog }) {
   const colorMap: Record<string, string> = { Biodegradable: '#8BC34A', Recyclable: '#00B0FF', Residual: '#EF5350' };
-  const color = colorMap[log.wasteType] ?? '#ffffff';
+  const color = colorMap[log.wasteType] ?? '#F2EDE3';
   return (
     <div className="bg-bg border border-border rounded-xl p-3 flex items-center justify-between hover:bg-white/5 transition-all">
       <div className="flex items-center gap-3">

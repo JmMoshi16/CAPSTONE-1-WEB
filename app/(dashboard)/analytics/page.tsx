@@ -25,9 +25,9 @@ type TimeRange = '7d' | '30d' | 'all';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const COLORS = {
-  green:  '#00E676',
+  green:  '#7CCFA5',
   blue:   '#00B0FF',
-  orange: '#FFAB40',
+  orange: '#E2AE68',
   purple: '#B388FF',
   red:    '#EF5350',
   bio:    '#8BC34A',
@@ -44,7 +44,7 @@ interface TooltipEntry { name?: string | number; value?: number | string; color?
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: TooltipEntry[]; label?: string | number }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-[#1C2128] border border-[#30363D] rounded-xl p-3 shadow-2xl">
+    <div className="bg-[#1C2520] border border-[#2A342D] rounded-xl p-3 shadow-2xl">
       <p className="text-white/70 text-xs font-semibold mb-2">{label}</p>
       {payload.map(p => (
         <div key={String(p.name)} className="flex items-center gap-2 text-xs">
@@ -70,7 +70,7 @@ function KPICard({ icon: Icon, label, value, sub, change, color }: KPICardProps)
   const positive = (change ?? 0) >= 0;
   return (
     <div
-      className="relative overflow-hidden bg-[#161B22] border border-[#30363D] rounded-2xl p-5 hover:border-opacity-60 transition-all duration-300 group cursor-default"
+      className="relative overflow-hidden bg-[#161D18] border border-[#2A342D] rounded-2xl p-5 hover:border-opacity-60 transition-all duration-300 group cursor-default"
       style={{ '--hover-color': color } as React.CSSProperties}
     >
       <div
@@ -85,7 +85,7 @@ function KPICard({ icon: Icon, label, value, sub, change, color }: KPICardProps)
           <Icon className="w-5 h-5" style={{ color }} />
         </div>
         {change !== undefined && (
-          <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg ${positive ? 'text-[#00E676] bg-[#00E676]/10' : 'text-[#EF5350] bg-[#EF5350]/10'}`}>
+          <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg ${positive ? 'text-[#7CCFA5] bg-[#7CCFA5]/10' : 'text-[#EF5350] bg-[#EF5350]/10'}`}>
             {positive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
             {Math.abs(change).toFixed(1)}%
           </span>
@@ -101,14 +101,14 @@ function KPICard({ icon: Icon, label, value, sub, change, color }: KPICardProps)
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 function Skeleton({ className = '' }: { className?: string }) {
   return (
-    <div className={`bg-[#1C2128] rounded-xl animate-pulse ${className}`} />
+    <div className={`bg-[#1C2520] rounded-xl animate-pulse ${className}`} />
   );
 }
 
 function LoadingSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="bg-[#161B22] border border-[#30363D] rounded-2xl p-6">
+      <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6">
         <div className="flex items-center gap-4 mb-6">
           <Skeleton className="w-14 h-14 rounded-2xl" />
           <div className="space-y-2">
@@ -239,11 +239,11 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-6 pb-10">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="bg-[#161B22] border border-[#30363D] rounded-2xl p-6">
+      <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500/80 to-[#B388FF]/50 flex items-center justify-center shadow-xl shadow-purple-500/20">
-              <BarChart3 className="w-7 h-7 text-white" />
+            <div className="w-14 h-14 rounded-2xl bg-forest/60 ring-1 ring-green/25 flex items-center justify-center shrink-0">
+              <BarChart3 className="w-7 h-7 text-green" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-white">Advanced Analytics</h1>
@@ -289,11 +289,11 @@ export default function AnalyticsPage() {
       {/* ── Main Charts ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Trend Chart */}
-        <div className="lg:col-span-2 bg-[#161B22] border border-[#30363D] rounded-2xl p-6 hover:border-[#00E676]/30 transition-all duration-300">
+        <div className="lg:col-span-2 bg-[#161D18] border border-[#2A342D] rounded-2xl p-6 hover:border-[#7CCFA5]/30 transition-all duration-300">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h3 className="text-white font-bold text-lg flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-[#00E676]" />
+                <TrendingUp className="w-5 h-5 text-[#7CCFA5]" />
                 Performance Trend
               </h3>
               <p className="text-white/40 text-xs mt-1">Disposals, points & active users</p>
@@ -303,24 +303,24 @@ export default function AnalyticsPage() {
             <ComposedChart data={data.dailyTrend}>
               <defs>
                 <linearGradient id="gradDisp" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#00E676" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#00E676" stopOpacity={0} />
+                  <stop offset="5%"  stopColor="#7CCFA5" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#7CCFA5" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#30363D" />
-              <XAxis dataKey="date" stroke="#ffffff30" tick={{ fill: '#ffffff50', fontSize: 11 }} />
-              <YAxis stroke="#ffffff30" tick={{ fill: '#ffffff50', fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
+              <XAxis dataKey="date" stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
+              <YAxis stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
               <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 12, color: '#ffffff60' }} />
-              <Area  type="monotone" dataKey="Disposals" stroke="#00E676" strokeWidth={2.5} fill="url(#gradDisp)" />
+              <Legend wrapperStyle={{ fontSize: 12, color: '#F2EDE360' }} />
+              <Area  type="monotone" dataKey="Disposals" stroke="#7CCFA5" strokeWidth={2.5} fill="url(#gradDisp)" />
               <Line  type="monotone" dataKey="Users"     stroke="#00B0FF" strokeWidth={2}   dot={false} />
-              <Bar   dataKey="Points" fill="#FFAB40" opacity={0.5} radius={[4,4,0,0]} />
+              <Bar   dataKey="Points" fill="#E2AE68" opacity={0.5} radius={[4,4,0,0]} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
 
         {/* Waste Breakdown Donut */}
-        <div className="bg-[#161B22] border border-[#30363D] rounded-2xl p-6 hover:border-[#00B0FF]/30 transition-all duration-300">
+        <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6 hover:border-[#00B0FF]/30 transition-all duration-300">
           <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
             <Recycle className="w-5 h-5 text-[#00B0FF]" />
             Waste Distribution
@@ -333,7 +333,7 @@ export default function AnalyticsPage() {
                 cy="50%"
                 innerRadius={55}
                 outerRadius={80}
-                paddingAngle={3}
+                paddingAngle={data.wasteBreakdown.filter(w => w.value > 0).length > 1 ? 3 : 0}
                 dataKey="value"
               >
                 {data.wasteBreakdown.map((entry, i) => (
@@ -361,18 +361,18 @@ export default function AnalyticsPage() {
       {/* ── Secondary Charts ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Stacked Bar */}
-        <div className="bg-[#161B22] border border-[#30363D] rounded-2xl p-6 hover:border-[#FFAB40]/30 transition-all duration-300">
+        <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6 hover:border-[#E2AE68]/30 transition-all duration-300">
           <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-[#FFAB40]" />
+            <Calendar className="w-5 h-5 text-[#E2AE68]" />
             Daily Waste Breakdown
           </h3>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={data.dailyTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#30363D" />
-              <XAxis dataKey="date" stroke="#ffffff30" tick={{ fill: '#ffffff50', fontSize: 11 }} />
-              <YAxis stroke="#ffffff30" tick={{ fill: '#ffffff50', fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
+              <XAxis dataKey="date" stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
+              <YAxis stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
               <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 12, color: '#ffffff60' }} />
+              <Legend wrapperStyle={{ fontSize: 12, color: '#F2EDE360' }} />
               <Bar dataKey="Bio" stackId="a" fill={COLORS.bio}  name="Bio" />
               <Bar dataKey="Rec" stackId="a" fill={COLORS.blue} name="Rec" />
               <Bar dataKey="Res" stackId="a" fill={COLORS.red}  name="Res" radius={[4,4,0,0]} />
@@ -381,21 +381,21 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Hourly Heatmap */}
-        <div className="bg-[#161B22] border border-[#30363D] rounded-2xl p-6 hover:border-[#B388FF]/30 transition-all duration-300">
+        <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6 hover:border-[#B388FF]/30 transition-all duration-300">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-white font-bold text-lg flex items-center gap-2">
               <Clock className="w-5 h-5 text-[#B388FF]" />
               Activity by Hour
             </h3>
-            <span className="px-3 py-1 bg-[#FFAB40]/10 border border-[#FFAB40]/30 rounded-full text-[#FFAB40] text-xs font-bold">
+            <span className="px-3 py-1 bg-[#E2AE68]/10 border border-[#E2AE68]/30 rounded-full text-[#E2AE68] text-xs font-bold">
               Peak: {data.peakHour.hour}
             </span>
           </div>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={data.hourlyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#30363D" />
-              <XAxis dataKey="hour" stroke="#ffffff30" tick={{ fill: '#ffffff50', fontSize: 10 }} interval={2} />
-              <YAxis stroke="#ffffff30" tick={{ fill: '#ffffff50', fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
+              <XAxis dataKey="hour" stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 10 }} interval={2} />
+              <YAxis stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="count" name="Scans" radius={[4,4,0,0]}>
                 {data.hourlyData.map((e, i) => (
@@ -408,33 +408,33 @@ export default function AnalyticsPage() {
       </div>
 
       {/* ── Points Trend ─────────────────────────────────────────────────────── */}
-      <div className="bg-[#161B22] border border-[#30363D] rounded-2xl p-6 hover:border-[#FFAB40]/30 transition-all duration-300">
+      <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6 hover:border-[#E2AE68]/30 transition-all duration-300">
         <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
-          <Zap className="w-5 h-5 text-[#FFAB40]" />
+          <Zap className="w-5 h-5 text-[#E2AE68]" />
           Points Economy Trend
         </h3>
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={data.dailyTrend}>
             <defs>
               <linearGradient id="gradPts" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%"  stopColor="#FFAB40" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#FFAB40" stopOpacity={0} />
+                <stop offset="5%"  stopColor="#E2AE68" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#E2AE68" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#30363D" />
-            <XAxis dataKey="date" stroke="#ffffff30" tick={{ fill: '#ffffff50', fontSize: 11 }} />
-            <YAxis stroke="#ffffff30" tick={{ fill: '#ffffff50', fontSize: 11 }} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
+            <XAxis dataKey="date" stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
+            <YAxis stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
             <Tooltip content={<CustomTooltip />} />
-            <Area type="monotone" dataKey="Points" stroke="#FFAB40" strokeWidth={2.5} fill="url(#gradPts)" name="Points" />
+            <Area type="monotone" dataKey="Points" stroke="#E2AE68" strokeWidth={2.5} fill="url(#gradPts)" name="Points" />
           </AreaChart>
         </ResponsiveContainer>
       </div>
 
       {/* ── Top Performers ────────────────────────────────────────────────────── */}
-      <div className="bg-[#161B22] border border-[#30363D] rounded-2xl p-6 hover:border-[#00E676]/20 transition-all duration-300">
+      <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6 hover:border-[#7CCFA5]/20 transition-all duration-300">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-white font-bold text-lg flex items-center gap-2">
-            <Award className="w-5 h-5 text-[#00E676]" />
+            <Award className="w-5 h-5 text-[#7CCFA5]" />
             Top Performers Leaderboard
           </h3>
           <span className="text-white/30 text-xs">Ranked by eco-points</span>
@@ -452,7 +452,7 @@ export default function AnalyticsPage() {
                 className="flex items-center gap-4 p-4 bg-white/[0.03] rounded-xl hover:bg-white/[0.07] transition-all duration-200 group border border-transparent hover:border-white/10"
               >
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-bold text-sm group-hover:scale-110 transition-transform ${
-                  idx === 0 ? 'bg-[#FFAB40]/20 text-[#FFAB40]' :
+                  idx === 0 ? 'bg-[#E2AE68]/20 text-[#E2AE68]' :
                   idx === 1 ? 'bg-white/10 text-white/70' :
                   idx === 2 ? 'bg-[#8BC34A]/20 text-[#8BC34A]' :
                   'bg-white/5 text-white/40'
@@ -473,7 +473,7 @@ export default function AnalyticsPage() {
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className="text-[#FFAB40] font-bold text-lg" title="lifetime points">{lifetimeOf(user).toLocaleString()}</div>
+                  <div className="text-[#E2AE68] font-bold text-lg" title="lifetime points">{lifetimeOf(user).toLocaleString()}</div>
                   <div className="text-white/30 text-xs">pts</div>
                 </div>
               </div>

@@ -32,12 +32,12 @@ export default function SettingsPage() {
       </Section>
 
       <Section title="Streak Bonus" subtitle="The phone app multiplies the base points by the customer's daily streak">
-        {multipliers.map(m => <Row key={m.label} label={m.label} color="#FFAB40" value={m.value} />)}
+        {multipliers.map(m => <Row key={m.label} label={m.label} color="#E2AE68" value={m.value} />)}
       </Section>
 
       <Section title="Kiosk" subtitle="QR receipts and bin alerts">
         <Row label="QR Code Expiry" description="Minutes a receipt's QR / claim code stays valid" color="#B388FF" value={RULES.qrExpiryMinutes} unit="min" />
-        <Row label="Bin Warning" description="The kiosk shows a warning; the Bins page turns amber" color="#FFAB40" value={RULES.bin_warn_pct} unit="%" />
+        <Row label="Bin Warning" description="The kiosk shows a warning; the Bins page turns amber" color="#E2AE68" value={RULES.bin_warn_pct} unit="%" />
         <Row label="Bin Full" description="The kiosk pauses until the bin is emptied" color="#EF5350" value={RULES.bin_full_pct} unit="%" />
       </Section>
 

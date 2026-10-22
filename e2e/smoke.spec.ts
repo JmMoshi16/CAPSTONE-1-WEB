@@ -4,8 +4,8 @@ import { ADMIN, CUSTOMER, SCANS } from './fixtures';
 
 async function signIn(page: Page, email: string, password: string) {
   await page.goto('/');
-  await page.getByPlaceholder('admin@ecoreward.com').fill(email);
-  await page.getByPlaceholder('••••••••').fill(password);
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign In' }).click();
 }
 
@@ -16,7 +16,7 @@ test('admin: dashboard survives a 20 s soak; Scan History shows one row per scan
 
   // C-05: pages used to replace their content with "Failed to load" 15 s after mounting.
   await page.waitForTimeout(20_000);
-  await expect(page.getByText(/Failed to load/)).toHaveCount(0);
+  await expect(page.getByText(/Couldn't load/)).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'ECOReward Dashboard' })).toBeVisible();
 
   // H-08: two scans must be two rows (merging waste_logs used to show four).
@@ -27,7 +27,7 @@ test('admin: dashboard survives a 20 s soak; Scan History shows one row per scan
 
   await page.getByRole('link', { name: 'Leaderboard' }).click();
   await expect(page.getByText(CUSTOMER.username).first()).toBeVisible();
-  await expect(page.getByText(/Failed to load/)).toHaveCount(0);
+  await expect(page.getByText(/Couldn't load/)).toHaveCount(0);
 });
 
 test('Bins follows the kiosk: heartbeat decides online, rules.json thresholds; Settings is read-only', async ({ page }) => {

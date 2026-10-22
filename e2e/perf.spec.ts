@@ -21,8 +21,8 @@ const reads = (page: Page) => page.evaluate(() => (window as unknown as { __ecoR
 
 async function signIn(page: Page) {
   await page.goto('/');
-  await page.getByPlaceholder('admin@ecoreward.com').fill(ADMIN.email);
-  await page.getByPlaceholder('••••••••').fill(ADMIN.password);
+  await page.getByLabel('Email', { exact: true }).fill(ADMIN.email);
+  await page.getByLabel('Password', { exact: true }).fill(ADMIN.password);
   await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30_000 });
 }

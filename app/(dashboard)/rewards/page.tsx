@@ -10,6 +10,7 @@ import { fmtDate, isOlderThanDays } from '@/lib/dates';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import ConfirmModal from '@/components/ConfirmModal';
 import LoadError from '@/components/LoadError';
+import PageLoader from '@/components/PageLoader';
 import toast from 'react-hot-toast';
 
 // Same rule the phone app shows customers: a reward code is valid for 7 days.
@@ -89,11 +90,7 @@ export default function RewardsPage() {
   if (error) return <LoadError what="rewards" />;
 
   if (loading) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-green" />
-      </div>
-    );
+    return <PageLoader what="rewards" />;
   }
 
   return (

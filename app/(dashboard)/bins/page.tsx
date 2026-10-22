@@ -11,10 +11,11 @@ import { groupByKiosk, fillState, type FillState, type KioskGroup } from '@/lib/
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import { fmtAgo, fmtDate } from '@/lib/dates';
 import LoadError from '@/components/LoadError';
+import PageLoader from '@/components/PageLoader';
 
 const WARN = RULES.bin_warn_pct;
 const FULL = RULES.bin_full_pct;
-const FILL_COLOR: Record<FillState, string> = { ok: '#00E676', warn: '#FFAB40', full: '#EF5350' };
+const FILL_COLOR: Record<FillState, string> = { ok: '#7CCFA5', warn: '#E2AE68', full: '#EF5350' };
 const TYPE_COLOR: Record<string, string> = { Biodegradable: '#8BC34A', Recyclable: '#00B0FF', Residual: '#EF5350' };
 
 // One card per kiosk: its heartbeat (kiosks/{id}) and its three bins (bins/{id}-bio|rec|res), in the
@@ -35,11 +36,7 @@ export default function BinsPage() {
 
   if (error) return <LoadError what="bins" />;
   if (bins === null || kiosks === null) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-green" />
-      </div>
-    );
+    return <PageLoader what="bins" />;
   }
 
   const groups = groupByKiosk(bins, kiosks, now);
