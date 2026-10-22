@@ -4,7 +4,8 @@ export const dynamic = 'force-dynamic';
 
 import { useState } from 'react';
 import { ClipboardCheck, Search, CheckCircle, XCircle, Loader2, User, Recycle, Star, Mail, ShieldCheck } from 'lucide-react';
-import { lookupUserByUsername, manualClaimPoints } from '@/lib/firebaseService';
+import { lookupUsersByUsername, manualClaimPoints } from '@/lib/firebaseService';
+import { BADGES } from '@/lib/rules';
 
 type Step = 'form' | 'confirm' | 'success' | 'error';
 
@@ -20,6 +21,7 @@ interface ClaimResult {
   email: string;
   wasteType: string;
   pointsAwarded: number;
+  newBadges: string[];
 }
 
 const WASTE_COLORS: Record<string, string> = {
@@ -34,6 +36,7 @@ export default function ManualClaimPage() {
   const [step, setStep]             = useState<Step>('form');
   const [errorMsg, setErrorMsg]     = useState('');
   const [foundUser, setFoundUser]   = useState<FoundUser | null>(null);
+  const [candidates, setCandidates] = useState<FoundUser[]>([]);   // several customers share the username
   const [result, setResult]         = useState<ClaimResult | null>(null);
   const [loading, setLoading]       = useState(false);
 
@@ -58,12 +61,14 @@ export default function ManualClaimPage() {
     setErrorMsg('');
 
     try {
-      const user = await lookupUserByUsername(uname);
-      if (!user) {
+      const users = await lookupUsersByUsername(uname);
+      if (users.length === 0) {
         setErrorMsg(`No account found with username "${uname}".`);
         setStep('error');
       } else {
-        setFoundUser(user);
+        // Usernames are not unique: with several matches staff choose by email, never the first one silently.
+        setCandidates(users);
+        setFoundUser(users.length === 1 ? users[0] : null);
         setStep('confirm');
       }
     } catch (e) {
@@ -82,7 +87,7 @@ export default function ManualClaimPage() {
     setErrorMsg('');
 
     try {
-      const res = await manualClaimPoints(claimCode.trim().toUpperCase(), foundUser.email);
+      const res = await manualClaimPoints(claimCode.trim().toUpperCase(), foundUser.uid);
       if (res.success && res.result) {
         setResult(res.result);
         setStep('success');
@@ -105,6 +110,7 @@ export default function ManualClaimPage() {
     setStep('form');
     setErrorMsg('');
     setFoundUser(null);
+    setCandidates([]);
     setResult(null);
     setClaimCode('');
     setUsername('');
@@ -198,6 +204,28 @@ export default function ManualClaimPage() {
       )}
 
       {/* Confirm step — show found user with email for verification */}
+      {step === 'confirm' && !foundUser && candidates.length > 1 && (
+        <div className="bg-card border border-orange/30 rounded-2xl p-6 space-y-4">
+          <div>
+            <h3 className="text-white font-bold text-base">{candidates.length} customers are called &ldquo;{candidates[0].username}&rdquo;</h3>
+            <p className="text-white/50 text-sm mt-1">Ask for their email, then choose the matching account.</p>
+          </div>
+          <div className="space-y-2">
+            {candidates.map(c => (
+              <button key={c.uid} onClick={() => setFoundUser(c)}
+                className="w-full flex items-center gap-3 p-3 rounded-xl bg-raised border border-border hover:border-green/40 transition text-left">
+                <Mail className="w-4 h-4 text-white/40 shrink-0" aria-hidden />
+                <span className="text-white text-sm flex-1 truncate">{c.email}</span>
+                <span className="text-white/40 text-xs">{c.points} pts</span>
+              </button>
+            ))}
+          </div>
+          <button onClick={reset} className="w-full bg-white/5 hover:bg-white/10 text-white font-semibold py-3 rounded-xl transition text-sm">
+            Cancel
+          </button>
+        </div>
+      )}
+
       {step === 'confirm' && foundUser && (
         <div className="bg-card border border-green/30 rounded-2xl p-6 space-y-5">
           <div className="flex items-center gap-2 mb-1">
@@ -286,6 +314,16 @@ export default function ManualClaimPage() {
               </div>
             </div>
           </div>
+
+          {result.newBadges.length > 0 && (
+            <div className="bg-orange/10 border border-orange/30 rounded-xl p-3 text-sm text-white/80">
+              New badge{result.newBadges.length > 1 ? 's' : ''}:{' '}
+              {result.newBadges.map(id => {
+                const b = BADGES.find(x => x.id === id);
+                return b ? `${b.icon} ${b.label}` : id;
+              }).join(', ')}
+            </div>
+          )}
 
           <button
             onClick={reset}

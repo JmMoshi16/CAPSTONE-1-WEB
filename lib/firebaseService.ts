@@ -23,6 +23,7 @@ import {
 import { db } from './firebase';
 import { UserModel, WasteLog, Reward, Redemption, BinStatus, KioskStatus, QRScanRecord } from './types';
 import { RULES } from './rules';
+import { creditScan, pickClaimToken, type CreditRules } from './claim';
 import { toDate, toIso } from './dates';
 import { toCSV } from './csv';
 import { shareSubscription } from './sharedSubscription';
@@ -242,101 +243,82 @@ export const subscribeToKiosks = shareSubscription<KioskStatus[]>((onData, onErr
 // ─── Manual Claim ────────────────────────────────────────────────────────────
 
 /**
- * Staff enters the receipt's claim code (ECO-dddd) + the customer's username, confirms the account,
- * then manualClaimPoints finds the unused token with that code, marks it used, logs the waste and
- * credits points.
+ * Staff enters the receipt's claim code (ECO-dddd) + the customer's username, confirms the account by its
+ * email, then manualClaimPoints credits that exact account exactly like a phone scan (lib/claim.ts).
  */
-export const lookupUserByUsername = async (
-  username: string
-): Promise<{ uid: string; username: string; email: string; points: number } | null> => {
+export interface ClaimCandidate { uid: string; username: string; email: string; points: number }
+
+/** Every customer with this username: usernames are not unique, so staff choose by email when there are several. */
+export const lookupUsersByUsername = async (username: string): Promise<ClaimCandidate[]> => {
   const firestore = getDb();
-  const snap = await getDocs(query(collection(firestore, 'users'), where('username', '==', username), where('role', '==', 'customer')));
-  if (snap.empty) return null;
-  const d = snap.docs[0].data();
-  return { uid: snap.docs[0].id, username: d.username, email: d.email, points: d.points ?? 0 };
+  const snap = await getDocs(query(collection(firestore, 'users'), where('username', '==', username),
+    where('role', '==', 'customer'), limit(10)));
+  return snap.docs.map(d => ({ uid: d.id, username: d.data().username, email: d.data().email, points: d.data().points ?? 0 }));
 };
 
 export const manualClaimPoints = async (
   claimCode: string,
-  email: string
-): Promise<{ success: boolean; error?: string; result?: { username: string; email: string; wasteType: string; pointsAwarded: number } }> => {
+  uid: string,
+): Promise<{ success: boolean; error?: string; result?: { username: string; email: string; wasteType: string; pointsAwarded: number; newBadges: string[] } }> => {
   const firestore = getDb();
-
-  // Find user by email (called after staff confirms the account)
-  const userSnap = await getDocs(query(collection(firestore, 'users'), where('email', '==', email), where('role', '==', 'customer')));
-  if (userSnap.empty) return { success: false, error: 'No account found with that Gmail address.' };
-  const userDoc = userSnap.docs[0];
-  const userData = userDoc.data() as UserModel;
 
   // claimCode is a 4-digit number stored on the token
   const code = claimCode.replace(/^ECO-/i, '').trim();
   if (!/^\d{4}$/.test(code)) return { success: false, error: 'Invalid claim code. Expected ECO-XXXX (4 digits).' };
 
+  // 4 digits can repeat: look at EVERY unused token with this code, never just the first.
   const tokensSnap = await getDocs(
     query(collection(firestore, 'qr_tokens'), where('claimCode', '==', code), where('isUsed', '==', false))
   );
+  const pick = pickClaimToken(tokensSnap.docs.map(d => ({ id: d.id, expiresAt: toDate(d.data().expiresAt) })), new Date());
+  if (!pick.ok) {
+    return { success: false, error: {
+      'not-found': 'Claim code not found. It may have already been used or does not exist.',
+      expired: 'This claim code has expired.',
+      ambiguous: 'Two receipts share this code right now. Ask the customer to scan the QR code with the app instead.',
+    }[pick.reason] };
+  }
+  const tokenId = pick.id;
 
-  if (tokensSnap.empty) return { success: false, error: 'Claim code not found. It may have already been used or does not exist.' };
-  const matchingToken = tokensSnap.docs[0];
-
-  const tokenData = matchingToken.data();
-  // Timestamp (H-07) or legacy ISO string; new Date(Timestamp) would be Invalid Date = never expired.
-  const expiresAt = toDate(tokenData.expiresAt);
-  if (expiresAt && new Date() > expiresAt) return { success: false, error: 'This QR token has expired.' };
-
-  const usedBy: string[] = tokenData.usedBy ?? [];
-  if (usedBy.includes(userDoc.id)) return { success: false, error: 'This claim code has already been used by this account.' };
-  if (usedBy.length > 0) return { success: false, error: 'This claim code has already been used.' };
-
-  const wasteType: string = tokenData.wasteType ?? 'Residual';
-  const pointsMap: Record<string, number> = RULES.points;   // config/rules.json, same as the kiosk (audit M-24)
-  const pointsAwarded = pointsMap[wasteType] ?? RULES.points.Residual;
-
-  // Mark token used + credit points + log waste — all in one transaction.
-  // Keeps lifetimePoints and the public profiles/{uid} copy in step with the app (audit M-11 / H-13).
-  const ALREADY_USED = 'already-used';
+  // Mark token used + credit + log waste in one transaction, with the same streak, multiplier, scan count and
+  // badges as a phone scan. Keeps lifetimePoints and the public profiles/{uid} copy in step (audit M-11 / H-13).
+  const ALREADY_USED = 'already-used', NO_USER = 'no-user';
   try {
-    await runTransaction(firestore, async tx => {
-      const tokenRef = doc(firestore, 'qr_tokens', matchingToken.id);
-      const userRef = doc(firestore, 'users', userDoc.id);
-      const logRef = doc(collection(firestore, 'waste_logs'));
+    const out = await runTransaction(firestore, async tx => {
+      const tokenRef = doc(firestore, 'qr_tokens', tokenId);
+      const userRef = doc(firestore, 'users', uid);
       // Re-check inside the transaction: the phone or another staff member may have claimed the
       // token since the query above (audit H-06 race).
       const liveToken = (await tx.get(tokenRef)).data();
       if (!liveToken || liveToken.isUsed === true || (liveToken.usedBy ?? []).length > 0) throw new Error(ALREADY_USED);
-      const live = (await tx.get(userRef)).data() ?? {};
-      const points = (live.points ?? 0) + pointsAwarded;
-      const lifetimePoints = (typeof live.lifetimePoints === 'number' ? live.lifetimePoints : live.points ?? 0) + pointsAwarded;
-      tx.update(tokenRef, { usedBy: [...usedBy, userDoc.id], isUsed: true });
-      tx.update(userRef, { points, lifetimePoints });
-      tx.set(doc(firestore, 'profiles', userDoc.id), {
-        username: live.username ?? '', points, lifetimePoints, badges: live.badges ?? [],
+      const userSnap = await tx.get(userRef);
+      if (!userSnap.exists() || userSnap.data().role !== 'customer') throw new Error(NO_USER);
+      const live = userSnap.data();
+      const wasteType: string = liveToken.wasteType ?? 'Residual';
+      const base = (RULES.points as Record<string, number>)[wasteType] ?? RULES.points.Residual;   // config/rules.json (audit M-24)
+      const c = creditScan(live, base, new Date(), RULES as unknown as CreditRules);
+      tx.update(tokenRef, { usedBy: [uid], isUsed: true });
+      tx.update(userRef, { points: c.points, lifetimePoints: c.lifetimePoints, scanCount: c.scanCount,
+        streak: c.streak, lastScanDate: c.lastScanDate, badges: c.badges });
+      tx.set(doc(firestore, 'profiles', uid), {
+        username: live.username ?? '', points: c.points, lifetimePoints: c.lifetimePoints, badges: c.badges,
       });
-      tx.set(logRef, {
-        userId: userDoc.id,
-        wasteType,
-        pointsEarned: pointsAwarded,
-        pointsAwarded,
-        timestamp: serverTimestamp(),
-        binId: matchingToken.id.substring(0, 8),
+      tx.set(doc(collection(firestore, 'waste_logs')), {
+        userId: uid, wasteType, pointsEarned: base, pointsAwarded: c.awarded,
+        timestamp: serverTimestamp(), binId: tokenId.substring(0, 8),
       });
+      return { username: live.username ?? '', email: live.email ?? '', wasteType, pointsAwarded: c.awarded, newBadges: c.newBadges };
     });
+    return { success: true, result: out };
   } catch (e) {
     if (e instanceof Error && e.message === ALREADY_USED) {
       return { success: false, error: 'This claim code was just used by someone else.' };
     }
+    if (e instanceof Error && e.message === NO_USER) {
+      return { success: false, error: 'That customer account no longer exists.' };
+    }
     throw e;
   }
-
-  return {
-    success: true,
-    result: {
-      username: userData.username,
-      email: userData.email,
-      wasteType,
-      pointsAwarded,
-    },
-  };
 };
 
 // ─── CSV Export ───────────────────────────────────────────────────────────────

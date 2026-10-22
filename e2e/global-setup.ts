@@ -49,6 +49,15 @@ export default async function globalSetup() {
     [`users/${aliceUid}`]: { username: CUSTOMER.username, email: CUSTOMER.email, role: 'customer', points: 25, lifetimePoints: 25,
       createdAt: now, scanCount: SCANS, streak: 1, lastScanDate: now.toISOString().slice(0, 10), badges: ['first_scan'] },
     [`profiles/${aliceUid}`]: { username: CUSTOMER.username, points: 25, lifetimePoints: 25, badges: ['first_scan'] },
+    // Manual Claim: two customers share the username "sam"; receipt code 4321 has an expired twin and one live token.
+    'users/sam1': { username: 'sam', email: 'sam1@e2e.test', role: 'customer', points: 0, lifetimePoints: 0, createdAt: now,
+      scanCount: 4, streak: 0, badges: ['first_scan'] },
+    'users/sam2': { username: 'sam', email: 'sam2@e2e.test', role: 'customer', points: 0, lifetimePoints: 0, createdAt: now,
+      scanCount: 4, streak: 0, badges: ['first_scan'] },
+    'qr_tokens/claim-old':  { wasteType: 'Residual', expiresAt: new Date(now.getTime() - 3_600_000), usedBy: [], isUsed: false,
+      createdAt: new Date(now.getTime() - 4_000_000), claimCode: '4321' },
+    'qr_tokens/claim-live': { wasteType: 'Biodegradable', expiresAt: new Date(now.getTime() + 20 * 60_000), usedBy: [], isUsed: false,
+      createdAt: now, claimCode: '4321' },
     'rewards/coffee': { title: 'Free Coffee', description: 'A cup of coffee', pointsCost: 50, category: 'Coffee', isActive: true, stock: 5 },
     // Kiosk heartbeat and bins exactly as app.py writes them; the second kiosk crashed 10 minutes ago.
     'kiosks/kiosk-cafe': { lastSeen: now, status: 'online', name: 'CAFE-PC' },
