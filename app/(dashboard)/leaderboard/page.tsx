@@ -7,6 +7,7 @@ import { Trophy, Star, Recycle, Flame, Crown, Users } from 'lucide-react';
 import { subscribeToLeaderboard, LEADERBOARD_SIZE } from '@/lib/firebaseService';
 import { UserModel, lifetimeOf } from '@/lib/types';
 import { getAvatarColor } from '@/lib/utils';
+import { activeStreak } from '@/lib/claim';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import StatPill from '@/components/StatPill';
 import LoadError from '@/components/LoadError';
@@ -22,7 +23,9 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     const unsub = subscribeToLeaderboard(data => {
-      setUsers(data);
+      // The stored streak is only rewritten on a scan; show 0 once it has lapsed, as the app does.
+      const today = new Date();
+      setUsers(data.map(u => ({ ...u, streak: activeStreak(u, today) })));
       setLoading(false);
     });
     return () => { unsub(); };
@@ -61,8 +64,8 @@ export default function LeaderboardPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-4">
-            <StatPill icon={Star} label="Lifetime Points" value={totalPoints.toLocaleString()} color="#E2AE68" />
-            <StatPill icon={Recycle} label="Total Scans" value={totalScans.toLocaleString()} color="#7CCFA5" />
+            <StatPill icon={Star} label="Lifetime Points" value={totalPoints.toLocaleString()} color="#FF8F5A" />
+            <StatPill icon={Recycle} label="Total Scans" value={totalScans.toLocaleString()} color="#FFC914" />
             <StatPill icon={Flame} label="Top Streak" value={`${topStreak}d`} color="#FF6D00" />
           </div>
         </div>
@@ -75,7 +78,7 @@ export default function LeaderboardPage() {
             {/* 2nd */}
             <PodiumCard user={top3[1]} rank={2} height="h-28" medal="🥈" color="#9E9E9E" onClick={() => setSelected(top3[1])} />
             {/* 1st */}
-            <PodiumCard user={top3[0]} rank={1} height="h-40" medal="🥇" color="#E2AE68" crown onClick={() => setSelected(top3[0])} />
+            <PodiumCard user={top3[0]} rank={1} height="h-40" medal="🥇" color="#FF8F5A" crown onClick={() => setSelected(top3[0])} />
             {/* 3rd */}
             <PodiumCard user={top3[2]} rank={3} height="h-20" medal="🥉" color="#CD7F32" onClick={() => setSelected(top3[2])} />
           </div>
@@ -221,9 +224,9 @@ function UserDetailDrawer({ user, onClose }: { user: UserModel; onClose: () => v
         <div className="p-6 space-y-6">
           {/* Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <MiniStat icon={Star} label="Lifetime" value={lifetimeOf(user)} color="#E2AE68" />
+            <MiniStat icon={Star} label="Lifetime" value={lifetimeOf(user)} color="#FF8F5A" />
             <MiniStat icon={Star} label="Balance" value={user.points ?? 0} color="#FFD54F" />
-            <MiniStat icon={Recycle} label="Scans" value={user.scanCount ?? 0} color="#7CCFA5" />
+            <MiniStat icon={Recycle} label="Scans" value={user.scanCount ?? 0} color="#FFC914" />
             <MiniStat icon={Flame} label="Streak" value={`${user.streak ?? 0}d`} color="#FF6D00" />
           </div>
 

@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 // ECOReward staff console: the café's back office after hours. Same brand as the kiosk and the phone app
-// (forest/mint, coffee/crema, cream; Fraunces + DM Sans), dark for long shifts.
+// (Crave navy #142477 and sun #FFC914, cream; Fraunces + DM Sans), dark for long shifts.
 // Token NAMES are unchanged so every page picks the new look up; category colours (bio/rec/res) stay
 // identical across the kiosk, app and console.
 module.exports = {
@@ -12,17 +12,17 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        white: '#F2EDE3',        // cream: all "white" text and overlays are warm, never blue-white
-        bg: '#0E1310',           // espresso-forest
-        card: '#161D18',
-        raised: '#1C2520',       // inputs, hovered rows
-        border: '#2A342D',
-        green: '#7CCFA5',        // brand mint (text 9:1 on card; dark text on mint fills)
-        'dark-green': '#5BB287',
-        forest: '#2F5D3A',
+        white: '#FFF8EC',        // Crave cream: all "white" text and overlays are warm
+        bg: '#080D2B',           // night navy: the counter after closing
+        card: '#0F1847',
+        raised: '#16205A',       // inputs, hovered rows
+        border: '#26336F',
+        green: '#FFC914',        // Crave sun: the brand accent (name kept so every page follows); navy text on sun fills
+        'dark-green': '#D9A800',
+        forest: '#23359E',     // navy light: icon tiles
         blue: '#00B0FF',
         purple: '#B388FF',
-        orange: '#E2AE68',       // crema: points and "needs attention"
+        orange: '#FF8F5A',       // coral: points and "needs attention", apart from the sun accent
         bio: '#8BC34A',
         rec: '#00B0FF',
         res: '#EF5350',

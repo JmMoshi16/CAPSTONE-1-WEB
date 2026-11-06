@@ -2,7 +2,7 @@
 // computeNewBadges in the Flutter repo), driven by config/rules.json. No imports, so `node --test` runs it.
 
 export interface StreakTier { minDays: number; maxDays: number | null; multiplier: number }
-export interface BadgeRule { id: string; req: string; value: number }
+export interface BadgeRule { id: string; req: string; value: number; bonus?: number }
 export interface CreditRules { streakMultipliers: StreakTier[]; badges: BadgeRule[] }
 
 export interface CustomerStats {
@@ -35,12 +35,25 @@ export function nextStreak(current: number, lastScanDate: string | undefined, to
   return 1;
 }
 
+/** Streak to SHOW: the stored one goes stale once a whole day is missed (the app's effectiveStreak). */
+export function activeStreak(user: Pick<CustomerStats, 'streak' | 'lastScanDate'>, today: Date): number {
+  const diff = daysSince(user.lastScanDate, today);
+  return diff === 0 || diff === 1 ? user.streak ?? 0 : 0;
+}
+
+/** The most one write may add to a customer's points (the security rules' bound). */
+export const MAX_CREDIT = 100;
+
 export function multiplierFor(streak: number, tiers: StreakTier[]): number {
   const tier = tiers.find(t => streak >= t.minDays && (t.maxDays == null || streak <= t.maxDays));
   return tier?.multiplier ?? 1;
 }
 
-/** Everything one scan changes on the customer's document, exactly as the app writes it. */
+/**
+ * Everything one scan changes on the customer's document, exactly as the app writes it (creditScanFor). Each badge
+ * the scan unlocks pays its one-time bonus on top, spendable and lifetime; badges are checked once, on the scan's
+ * own result, and the bonus is cut only where scan plus bonus would pass MAX_CREDIT.
+ */
 export function creditScan(user: CustomerStats, base: number, today: Date, rules: CreditRules) {
   const streak = nextStreak(user.streak ?? 0, user.lastScanDate, today);
   const multiplier = multiplierFor(streak, rules.streakMultipliers);
@@ -56,9 +69,11 @@ export function creditScan(user: CustomerStats, base: number, today: Date, rules
       || (b.req === 'points' && lifetimePoints >= b.value)
       || (b.req === 'streak' && streak >= b.value))
     .map(b => b.id);
+  const bonus = rules.badges.filter(b => newBadges.includes(b.id)).reduce((sum, b) => sum + (b.bonus ?? 0), 0);
+  const badgeBonus = Math.min(bonus, Math.max(0, MAX_CREDIT - awarded));
   return {
-    awarded, multiplier, streak, points, lifetimePoints, scanCount,
-    lastScanDate: localDayKey(today), badges: [...owned, ...newBadges], newBadges,
+    awarded, multiplier, streak, points: points + badgeBonus, lifetimePoints: lifetimePoints + badgeBonus, scanCount,
+    lastScanDate: localDayKey(today), badges: [...owned, ...newBadges], newBadges, badgeBonus,
   };
 }
 

@@ -24,9 +24,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Toaster
             position="top-right"
             toastOptions={{
-              style: { background: '#1C2520', color: '#F2EDE3', border: '1px solid #2A342D', borderRadius: '14px' },
-              success: { iconTheme: { primary: '#7CCFA5', secondary: '#1C2520' } },
-              error: { iconTheme: { primary: '#EF5350', secondary: '#1C2520' } },
+              style: { background: '#16205A', color: '#FFF8EC', border: '1px solid #26336F', borderRadius: '14px' },
+              success: { iconTheme: { primary: '#FFC914', secondary: '#16205A' } },
+              error: { iconTheme: { primary: '#EF5350', secondary: '#16205A' } },
             }}
           />
         </AuthProvider>

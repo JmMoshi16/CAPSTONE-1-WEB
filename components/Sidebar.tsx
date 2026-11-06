@@ -9,6 +9,7 @@ import {
 import { signOut } from 'firebase/auth';
 import { useAuth } from '@/lib/AuthContext';
 import toast from 'react-hot-toast';
+import { useWaitingCodes } from '@/components/RedemptionAlerts';
 
 // Grouped by the job staff are doing, not by how the app is built. Labels are unchanged (e2e tests use them).
 const NAV_GROUPS = [
@@ -53,6 +54,7 @@ export default function Sidebar() {
   const router = useRouter();
   const { user } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const waitingCodes = useWaitingCodes();
 
   // Sliding indicator: one pill that moves to the active link instead of each link lighting up on its own.
   const navRef = useRef<HTMLElement>(null);
@@ -119,7 +121,11 @@ export default function Sidebar() {
                   }`}
                 >
                   <Icon className="w-[18px] h-[18px] shrink-0" aria-hidden />
-                  <span className="text-sm">{label}</span>
+                  <span className="text-sm whitespace-nowrap">{label}</span>
+                  {href === '/rewards' && waitingCodes > 0 && (
+                    <span className="ml-auto min-w-[22px] px-1.5 py-0.5 rounded-full bg-orange text-black text-xs font-bold text-center"
+                      aria-label={`${waitingCodes} ${waitingCodes === 1 ? 'code' : 'codes'} waiting`}>{waitingCodes}</span>
+                  )}
                 </Link>
               );
             })}

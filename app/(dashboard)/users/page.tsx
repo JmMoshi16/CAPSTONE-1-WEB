@@ -58,7 +58,8 @@ export default function UsersPage() {
     const totalPoints = customers.reduce((sum, u) => sum + lifetimeOf(u), 0);
     const avgPoints = customers.length > 0 ? totalPoints / customers.length : 0;
     const { activeToday, activeYesterday, activeWeek } = index;
-    const userGrowth = activeYesterday > 0 ? ((activeToday - activeYesterday) / activeYesterday) * 100 : 0;
+    // Active customers today vs yesterday; no badge when nobody was active yesterday.
+    const activeChange = activeYesterday > 0 ? ((activeToday - activeYesterday) / activeYesterday) * 100 : undefined;
 
     const rankDistribution = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
     for (const u of customers) {
@@ -76,7 +77,7 @@ export default function UsersPage() {
       avgPoints,
       activeToday,
       activeWeek,
-      userGrowth,
+      activeChange,
       rankDistribution,
       topPerformers,
       engagementRate: customers.length > 0 ? (activeWeek / customers.length) * 100 : 0
@@ -152,22 +153,22 @@ export default function UsersPage() {
             icon={UsersIcon}
             label="Total Users"
             value={customers.length}
-            change={analytics.userGrowth}
             color="#00B0FF"
           />
           <QuickMetric
             icon={Zap}
             label="Active Today"
             value={analytics.activeToday}
+            change={analytics.activeChange}
             subtitle={`${analytics.activeWeek} this week`}
-            color="#7CCFA5"
+            color="#FFC914"
           />
           <QuickMetric
             icon={Star}
             label="Avg Lifetime Pts"
             value={Math.round(analytics.avgPoints)}
             subtitle={`${analytics.totalPoints.toLocaleString()} total`}
-            color="#E2AE68"
+            color="#FF8F5A"
           />
           <QuickMetric
             icon={Target}
@@ -192,7 +193,7 @@ export default function UsersPage() {
               <Pie
                 data={[
                   { name: 'Platinum', value: analytics.rankDistribution.platinum, color: '#00B0FF' },
-                  { name: 'Gold', value: analytics.rankDistribution.gold, color: '#E2AE68' },
+                  { name: 'Gold', value: analytics.rankDistribution.gold, color: '#FF8F5A' },
                   { name: 'Silver', value: analytics.rankDistribution.silver, color: '#9E9E9E' },
                   { name: 'Bronze', value: analytics.rankDistribution.bronze, color: '#CD7F32' },
                 ]}
@@ -205,7 +206,7 @@ export default function UsersPage() {
               >
                 {[
                   { color: '#00B0FF' },
-                  { color: '#E2AE68' },
+                  { color: '#FF8F5A' },
                   { color: '#9E9E9E' },
                   { color: '#CD7F32' },
                 ].map((entry, index) => (
@@ -216,7 +217,7 @@ export default function UsersPage() {
           </ResponsiveContainer>
           <div className="grid grid-cols-2 gap-2 mt-4">
             <RankBadge label="Platinum" count={analytics.rankDistribution.platinum} color="#00B0FF" />
-            <RankBadge label="Gold" count={analytics.rankDistribution.gold} color="#E2AE68" />
+            <RankBadge label="Gold" count={analytics.rankDistribution.gold} color="#FF8F5A" />
             <RankBadge label="Silver" count={analytics.rankDistribution.silver} color="#9E9E9E" />
             <RankBadge label="Bronze" count={analytics.rankDistribution.bronze} color="#CD7F32" />
           </div>
@@ -349,7 +350,7 @@ function QuickMetric({ icon: Icon, label, value, change, subtitle, color }: Quic
           <Icon className="w-5 h-5" style={{ color }} />
         </div>
         {hasChange && (
-          <div className={`flex items-center gap-1 text-xs font-semibold ${isPositive ? 'text-green' : 'text-red'}`}>
+          <div title="vs yesterday" className={`flex items-center gap-1 text-xs font-semibold ${isPositive ? 'text-green' : 'text-red'}`}>
             {isPositive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
             {Math.abs(change ?? 0).toFixed(1)}%
           </div>
@@ -426,9 +427,11 @@ function UserCard({ user, rank, disposals, onClick }: UserCardProps) {
 interface UserDrawerProps { user: UserModel; onClose: () => void }
 function UserDrawer({ user, onClose }: UserDrawerProps) {
   const [loaded, setLoaded] = useState<WasteLog[] | null>(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     setLoaded(null);
-    getUserWasteLogs(user.uid).then(setLoaded).catch(() => setLoaded([]));
+    setFailed(false);
+    getUserWasteLogs(user.uid).then(setLoaded).catch(e => { console.error('[user logs]', e); setFailed(true); });
   }, [user.uid]);
   const logs = loaded ?? [];
   const rankBadge = getRankBadge(lifetimeOf(user));
@@ -474,11 +477,18 @@ function UserDrawer({ user, onClose }: UserDrawerProps) {
         </div>
 
         <div className="p-6 space-y-6">
-          <>
+          {failed ? (
+            <p role="alert" className="text-res text-sm">Could not load this customer&apos;s scans. Check the connection, then close and reopen.</p>
+          ) : loaded === null ? (
+            <div aria-busy="true" aria-label="Loading scans" className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">{[0, 1, 2, 3].map(i => <div key={i} className="skeleton h-20 rounded-xl" />)}</div>
+              <div className="skeleton h-40 rounded-xl" />
+            </div>
+          ) : <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <MiniStat icon={Star} label="Lifetime" value={lifetimeOf(user)} color="#E2AE68" />
+            <MiniStat icon={Star} label="Lifetime" value={lifetimeOf(user)} color="#FF8F5A" />
             <MiniStat icon={Star} label="Balance" value={user.points ?? 0} color="#FFD54F" />
-            <MiniStat icon={Recycle} label="Disposals" value={logs.length} color="#7CCFA5" />
+            <MiniStat icon={Recycle} label="Disposals" value={disposalsOf(user)} color="#FFC914" />
             <MiniStat icon={TrendingUp} label="Earned" value={totalEarned} color="#FF6D00" />
           </div>
 
@@ -496,11 +506,11 @@ function UserDrawer({ user, onClose }: UserDrawerProps) {
                     <stop offset="95%" stopColor="#00B0FF" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
-                <XAxis dataKey="day" stroke="#F2EDE340" style={{ fontSize: '10px' }} />
-                <YAxis stroke="#F2EDE340" style={{ fontSize: '10px' }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#26336F" />
+                <XAxis dataKey="day" stroke="#FFF8EC40" style={{ fontSize: '10px' }} />
+                <YAxis stroke="#FFF8EC40" style={{ fontSize: '10px' }} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#161D18', border: '1px solid #2A342D', borderRadius: '8px' }}
+                  contentStyle={{ backgroundColor: '#0F1847', border: '1px solid #26336F', borderRadius: '8px' }}
                 />
                 <Area type="monotone" dataKey="count" stroke="#00B0FF" strokeWidth={2} fill="url(#colorActivity)" />
               </AreaChart>
@@ -527,7 +537,7 @@ function UserDrawer({ user, onClose }: UserDrawerProps) {
               </div>
             </div>
           )}
-          </>
+          </>}
         </div>
       </div>
     </div>
@@ -564,7 +574,7 @@ function WasteBar({ label, count, total, color }: { label: string; count: number
 
 function LogItem({ log }: { log: WasteLog }) {
   const colorMap: Record<string, string> = { Biodegradable: '#8BC34A', Recyclable: '#00B0FF', Residual: '#EF5350' };
-  const color = colorMap[log.wasteType] ?? '#F2EDE3';
+  const color = colorMap[log.wasteType] ?? '#FFF8EC';
   return (
     <div className="bg-bg border border-border rounded-xl p-3 flex items-center justify-between hover:bg-white/5 transition-all">
       <div className="flex items-center gap-3">

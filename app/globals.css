@@ -10,11 +10,11 @@
 
 body {
   font-family: var(--font-body), system-ui, sans-serif;
-  background-color: #0E1310;
+  background-color: #080D2B;
   /* a faint warm glow from the top-left, like a lamp over the counter */
-  background-image: radial-gradient(1200px 600px at 0% 0%, rgba(124, 207, 165, 0.05), transparent 60%);
+  background-image: radial-gradient(1200px 600px at 0% 0%, rgba(255, 201, 20, 0.05), transparent 60%);
   background-attachment: fixed;
-  color: #F2EDE3;
+  color: #FFF8EC;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
@@ -29,8 +29,8 @@ body {
   }
   /* Numbers never jiggle while they change. */
   body { font-variant-numeric: tabular-nums; }
-  ::selection { background: rgba(124, 207, 165, 0.3); }
-  :focus-visible { outline: 2px solid #7CCFA5; outline-offset: 2px; border-radius: 6px; }
+  ::selection { background: rgba(255, 201, 20, 0.3); }
+  :focus-visible { outline: 2px solid #FFC914; outline-offset: 2px; border-radius: 6px; }
 }
 
 @layer components {
@@ -47,7 +47,7 @@ body {
     font-weight: 600;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: rgba(242, 237, 227, 0.45);
+    color: rgba(255, 248, 236, 0.45);
   }
   /* Cards that can be hovered lift a little and warm their border. */
   .card-lift {
@@ -55,13 +55,13 @@ body {
   }
   .card-lift:hover {
     transform: translateY(-2px);
-    border-color: rgba(124, 207, 165, 0.28);
+    border-color: rgba(255, 201, 20, 0.28);
     box-shadow: 0 12px 32px -16px rgba(0, 0, 0, 0.6);
   }
   .skeleton {
     position: relative;
     overflow: hidden;
-    background: #1C2520;
+    background: #16205A;
     border-radius: 12px;
   }
   .skeleton::after {
@@ -69,7 +69,7 @@ body {
     position: absolute;
     inset: 0;
     transform: translateX(-100%);
-    background: linear-gradient(90deg, transparent, rgba(242, 237, 227, 0.05), transparent);
+    background: linear-gradient(90deg, transparent, rgba(255, 248, 236, 0.05), transparent);
     animation: shimmer 1.6s ease-in-out infinite;
   }
 }
@@ -80,11 +80,11 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0E1310;
+  background: #080D2B;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2A342D;
+  background: #26336F;
   border-radius: 4px;
 }
 

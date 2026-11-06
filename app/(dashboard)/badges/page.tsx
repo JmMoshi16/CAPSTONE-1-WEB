@@ -15,7 +15,7 @@ import LoadError from '@/components/LoadError';
 
 // Badge rules come from config/rules.json (what the phone app awards); only the colours are the web's.
 const BADGE_COLORS: Record<string, string> = {
-  first_scan: '#8BC34A', scan_5: '#00B0FF', scan_10: '#4CAF50', scan_25: '#E2AE68', scan_50: '#FF6D00',
+  first_scan: '#8BC34A', scan_5: '#00B0FF', scan_10: '#4CAF50', scan_25: '#FF8F5A', scan_50: '#FF6D00',
   pts_50: '#FFC107', pts_100: '#FF9800', pts_500: '#00B0FF', streak_3: '#FF5722', streak_7: '#9C27B0',
 };
 const BADGE_DEFS = BADGES.map(b => ({ ...b, color: BADGE_COLORS[b.id] ?? '#9E9E9E' }));
@@ -74,8 +74,8 @@ export default function BadgesPage() {
             </div>
           </div>
           <div className="flex gap-3 flex-wrap">
-            <StatPill icon={Award} label="Total Awarded" value={stats.totalBadgesAwarded} color="#E2AE68" />
-            <StatPill icon={Users} label="Users with Badges" value={stats.usersWithBadges} color="#7CCFA5" />
+            <StatPill icon={Award} label="Total Awarded" value={stats.totalBadgesAwarded} color="#FF8F5A" />
+            <StatPill icon={Users} label="Users with Badges" value={stats.usersWithBadges} color="#FFC914" />
           </div>
         </div>
       </div>
@@ -171,7 +171,7 @@ function BadgeCard({ badge }: { badge: typeof BADGE_DEFS[0] & { count: number; p
   return (
     <div
       className="bg-card border rounded-2xl p-5 flex flex-col items-center text-center hover:scale-105 transition-all duration-300 group"
-      style={{ borderColor: unlocked ? `${badge.color}40` : '#2A342D' }}
+      style={{ borderColor: unlocked ? `${badge.color}40` : '#26336F' }}
     >
       <div
         className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl mb-3 group-hover:scale-110 transition-transform"
@@ -196,6 +196,9 @@ function BadgeCard({ badge }: { badge: typeof BADGE_DEFS[0] & { count: number; p
       <div className="text-white/30 text-xs mt-0.5">
         Req: {badge.req === 'scans' ? `${badge.value} scans` : badge.req === 'points' ? `${badge.value} pts` : `${badge.value}d streak`}
       </div>
+      {badge.bonus > 0 && (
+        <div className="text-xs mt-0.5 font-bold" style={{ color: badge.color }}>Pays +{badge.bonus} pts when unlocked</div>
+      )}
     </div>
   );
 }

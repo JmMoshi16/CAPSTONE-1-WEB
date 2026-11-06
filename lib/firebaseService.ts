@@ -26,6 +26,7 @@ import { RULES } from './rules';
 import { creditScan, pickClaimToken, type CreditRules } from './claim';
 import { toDate, toIso } from './dates';
 import { toCSV } from './csv';
+import { claimRefusal, REDEMPTION_VALID_DAYS } from './redemptions';
 import { shareSubscription } from './sharedSubscription';
 
 // db is only null during SSR — these functions are only called from 'use client' components
@@ -126,7 +127,8 @@ export const countLogsBetween = (from: Date, to: Date): Promise<number> =>
   countOf(query(collection(getDb(), 'waste_logs'),
     where('timestamp', '>=', Timestamp.fromDate(from)), where('timestamp', '<', Timestamp.fromDate(to))));
 
-export interface AdminStats { customers: number; lifetimePoints: number; redemptions: number; pendingRedemptions: number }
+// Codes still waiting at the counter are counted live from subscribeToRecentRedemptions, not here.
+export interface AdminStats { customers: number; lifetimePoints: number; redemptions: number }
 
 /** Totals for the dashboard without downloading every customer and redemption (audit M-03). */
 export const getAdminStats = async (): Promise<AdminStats> => {
@@ -134,12 +136,15 @@ export const getAdminStats = async (): Promise<AdminStats> => {
   const customers = await getAggregateFromServer(query(collection(db, 'users'), where('role', '==', 'customer')),
     { n: count(), lifetime: sum('lifetimePoints') });
   aggReads(customers.data().n);
-  const [redemptions, pendingRedemptions] = await Promise.all([
-    countOf(collection(db, 'redemptions')),
-    countOf(query(collection(db, 'redemptions'), where('status', '==', 'pending'))),
-  ]);
-  return { customers: customers.data().n, lifetimePoints: customers.data().lifetime ?? 0, redemptions, pendingRedemptions };
+  const redemptions = await countOf(collection(db, 'redemptions'));
+  return { customers: customers.data().n, lifetimePoints: customers.data().lifetime ?? 0, redemptions };
 };
+
+const REDEMPTION_VALID_MS = REDEMPTION_VALID_DAYS * 86_400_000;
+
+export const countRedemptionsBetween = (from: Date, to: Date): Promise<number> =>
+  countOf(query(collection(getDb(), 'redemptions'),
+    where('redeemedAt', '>=', Timestamp.fromDate(from)), where('redeemedAt', '<', Timestamp.fromDate(to))));
 
 // ─── Rewards ──────────────────────────────────────────────────────────────────
 
@@ -172,9 +177,29 @@ export const subscribeToRedemptions = shareSubscription<Redemption[]>((onData, o
     }));
   }, onError));
 
+/**
+ * Hands out a reward. Re-reads the code inside a transaction, so two staff tapping at once, or a code that expired
+ * while the page was open, cannot be handed out twice or late. Writes `status` only (the rules allow nothing else).
+ */
 export const markRedemptionClaimed = async (id: string): Promise<void> => {
-  await updateDoc(doc(getDb(), 'redemptions', id), { status: 'claimed' });
+  const db = getDb();
+  await runTransaction(db, async tx => {
+    const ref = doc(db, 'redemptions', id);
+    const snap = await tx.get(ref);
+    const data = snap.data();
+    const refusal = claimRefusal(snap.exists() ? { status: data?.status, redeemedAt: toIso(data?.redeemedAt) } : undefined);
+    if (refusal) throw new Error(refusal);
+    tx.update(ref, { status: 'claimed' });
+  });
 };
+
+/** Redemptions from the last 7 days (the only ones still redeemable), live: the sidebar count and new-code alerts. */
+export const subscribeToRecentRedemptions = shareSubscription<Redemption[]>((onData, onError) =>
+  onSnapshot(query(collection(getDb(), 'redemptions'),
+    where('redeemedAt', '>=', Timestamp.fromMillis(Date.now() - REDEMPTION_VALID_MS))), snapshot => {
+    countReads(snapshot.docChanges().length);
+    onData(snapshot.docs.map(d => ({ id: d.id, ...d.data(), redeemedAt: toIso(d.data().redeemedAt) } as Redemption)));
+  }, onError));
 
 // ─── QR Scan History ──────────────────────────────────────────────────────────
 
@@ -304,10 +329,11 @@ export const manualClaimPoints = async (
         username: live.username ?? '', points: c.points, lifetimePoints: c.lifetimePoints, badges: c.badges,
       });
       tx.set(doc(collection(firestore, 'waste_logs')), {
-        userId: uid, wasteType, pointsEarned: base, pointsAwarded: c.awarded,
+        userId: uid, wasteType, pointsEarned: base, pointsAwarded: c.awarded + c.badgeBonus, badgeBonus: c.badgeBonus,
         timestamp: serverTimestamp(), binId: tokenId.substring(0, 8),
       });
-      return { username: live.username ?? '', email: live.email ?? '', wasteType, pointsAwarded: c.awarded, newBadges: c.newBadges };
+      return { username: live.username ?? '', email: live.email ?? '', wasteType, pointsAwarded: c.awarded + c.badgeBonus,
+        newBadges: c.newBadges };
     });
     return { success: true, result: out };
   } catch (e) {

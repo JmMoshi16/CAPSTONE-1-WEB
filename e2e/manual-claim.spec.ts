@@ -27,11 +27,11 @@ test('manual claim: choose sam by email, credit like a phone scan', async ({ pag
   await page.getByRole('button', { name: /Confirm & Credit/ }).click();
 
   await expect(page.getByText('Points Credited!')).toBeVisible();
-  await expect(page.getByText('+15')).toBeVisible();              // Biodegradable, streak 1 -> 1x
+  await expect(page.getByText('+25')).toBeVisible();              // Biodegradable 15 (streak 1 -> 1x) + 5 Scans' badge bonus 10
   await expect(page.getByText(/5 Scans/)).toBeVisible();          // the 5th scan unlocks the badge, as in the app
 
   const sam2 = await read('users/sam2');
-  expect(sam2.points.integerValue).toBe('15');
+  expect(sam2.points.integerValue).toBe('25');
   expect(sam2.scanCount.integerValue).toBe('5');
   expect(sam2.streak.integerValue).toBe('1');
   expect(sam2.badges.arrayValue?.values?.map(v => v.stringValue)).toContain('scan_5');

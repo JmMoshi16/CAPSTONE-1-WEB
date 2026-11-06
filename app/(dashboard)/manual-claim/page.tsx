@@ -26,7 +26,7 @@ interface ClaimResult {
 
 const WASTE_COLORS: Record<string, string> = {
   Biodegradable: '#8BC34A',
-  Recyclable:    '#29B6F6',
+  Recyclable:    '#00B0FF',
   Residual:      '#EF5350',
 };
 
@@ -303,7 +303,7 @@ export default function ManualClaimPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-card border border-border rounded-xl p-3 text-center">
-                <Recycle className="w-5 h-5 mx-auto mb-1" style={{ color: WASTE_COLORS[result.wasteType] ?? '#F2EDE3' }} />
+                <Recycle className="w-5 h-5 mx-auto mb-1" style={{ color: WASTE_COLORS[result.wasteType] ?? '#FFF8EC' }} />
                 <p className="text-white font-bold text-sm">{result.wasteType}</p>
                 <p className="text-white/40 text-xs">Waste Type</p>
               </div>

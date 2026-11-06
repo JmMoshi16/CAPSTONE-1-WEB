@@ -8,9 +8,10 @@ import {
   Tooltip, ResponsiveContainer, Legend, Line,
   ComposedChart, Cell, PieChart, Pie,
 } from 'recharts';
-import { subscribeToWasteLogs, subscribeToRecentWasteLogs, subscribeToLeaderboard, getAdminStats, countLogsBetween, type AdminStats } from '@/lib/firebaseService';
+import { subscribeToWasteLogs, subscribeToRecentWasteLogs, subscribeToLeaderboard, getAdminStats, countLogsBetween, countRedemptionsBetween, type AdminStats } from '@/lib/firebaseService';
 import { WasteLog, UserModel, lifetimeOf, creditedOf } from '@/lib/types';
 import { toDate } from '@/lib/dates';
+import { peakHour, rangeStart, rate } from '@/lib/stats';
 import { format, subDays, startOfWeek } from 'date-fns';
 import LoadError from '@/components/LoadError';
 import {
@@ -25,13 +26,13 @@ type TimeRange = '7d' | '30d' | 'all';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const COLORS = {
-  green:  '#7CCFA5',
+  green:  '#FFC914',
   blue:   '#00B0FF',
-  orange: '#E2AE68',
+  orange: '#FF8F5A',
   purple: '#B388FF',
   red:    '#EF5350',
   bio:    '#8BC34A',
-  rec:    '#29B6F6',
+  rec:    '#00B0FF',
   res:    '#EF5350',
 };
 
@@ -44,7 +45,7 @@ interface TooltipEntry { name?: string | number; value?: number | string; color?
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: TooltipEntry[]; label?: string | number }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-[#1C2520] border border-[#2A342D] rounded-xl p-3 shadow-2xl">
+    <div className="bg-[#16205A] border border-[#26336F] rounded-xl p-3 shadow-2xl">
       <p className="text-white/70 text-xs font-semibold mb-2">{label}</p>
       {payload.map(p => (
         <div key={String(p.name)} className="flex items-center gap-2 text-xs">
@@ -70,7 +71,7 @@ function KPICard({ icon: Icon, label, value, sub, change, color }: KPICardProps)
   const positive = (change ?? 0) >= 0;
   return (
     <div
-      className="relative overflow-hidden bg-[#161D18] border border-[#2A342D] rounded-2xl p-5 hover:border-opacity-60 transition-all duration-300 group cursor-default"
+      className="relative overflow-hidden bg-[#0F1847] border border-[#26336F] rounded-2xl p-5 hover:border-opacity-60 transition-all duration-300 group cursor-default"
       style={{ '--hover-color': color } as React.CSSProperties}
     >
       <div
@@ -85,7 +86,7 @@ function KPICard({ icon: Icon, label, value, sub, change, color }: KPICardProps)
           <Icon className="w-5 h-5" style={{ color }} />
         </div>
         {change !== undefined && (
-          <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg ${positive ? 'text-[#7CCFA5] bg-[#7CCFA5]/10' : 'text-[#EF5350] bg-[#EF5350]/10'}`}>
+          <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg ${positive ? 'text-[#FFC914] bg-[#FFC914]/10' : 'text-[#EF5350] bg-[#EF5350]/10'}`}>
             {positive ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
             {Math.abs(change).toFixed(1)}%
           </span>
@@ -101,14 +102,14 @@ function KPICard({ icon: Icon, label, value, sub, change, color }: KPICardProps)
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 function Skeleton({ className = '' }: { className?: string }) {
   return (
-    <div className={`bg-[#1C2520] rounded-xl animate-pulse ${className}`} />
+    <div className={`bg-[#16205A] rounded-xl animate-pulse ${className}`} />
   );
 }
 
 function LoadingSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6">
+      <div className="bg-[#0F1847] border border-[#26336F] rounded-2xl p-6">
         <div className="flex items-center gap-4 mb-6">
           <Skeleton className="w-14 h-14 rounded-2xl" />
           <div className="space-y-2">
@@ -140,11 +141,15 @@ export default function AnalyticsPage() {
   const [top, setTop] = useState<UserModel[] | null>(null);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [prevTotal, setPrevTotal] = useState<number | undefined>(undefined);
+  const [redemptionsInRange, setRedemptionsInRange] = useState<number | undefined>(undefined);
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
   const [lastRefresh, setLastRefresh] = useState(new Date());
 
   useEffect(() => {
     getAdminStats().then(setStats).catch(e => console.error('[analytics stats]', e));
+  }, [lastRefresh]);
+
+  useEffect(() => {
     const u1 = subscribeToRecentWasteLogs(setRecentLogs);
     const u2 = subscribeToLeaderboard(setTop);
     return () => { u1(); u2(); };
@@ -157,10 +162,13 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     setPrevTotal(undefined);
+    setRedemptionsInRange(undefined);
     const span = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 0;
     if (!span) return;
     const now = new Date();
-    countLogsBetween(subDays(now, 2 * span), subDays(now, span)).then(setPrevTotal).catch(() => setPrevTotal(undefined));
+    const start = rangeStart(span, now);
+    countLogsBetween(rangeStart(2 * span, now), start).then(setPrevTotal).catch(() => setPrevTotal(undefined));
+    countRedemptionsBetween(start, new Date(now.getTime() + 60_000)).then(setRedemptionsInRange).catch(() => setRedemptionsInRange(undefined));
   }, [timeRange, lastRefresh]);
 
   const logs = useMemo(() => (timeRange === 'all' ? allLogs : recentLogs) ?? [], [timeRange, allLogs, recentLogs]);
@@ -174,7 +182,7 @@ export default function AnalyticsPage() {
   const data = useMemo(() => {
     const now = new Date();
     const spanDays = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 0;
-    const cutoff = spanDays ? subDays(now, spanDays) : new Date(0);
+    const cutoff = rangeStart(spanDays, now);   // whole calendar days, so the total matches the chart's bars
     const weekStart = startOfWeek(now);
 
     const days = spanDays || 30;
@@ -208,7 +216,7 @@ export default function AnalyticsPage() {
       return { date: format(new Date(`${k}T00:00:00`), days === 7 ? 'EEE' : 'MMM d'), ...rest, Users: users.size };
     });
     const hourlyData = hourly.map((count, h) => ({ hour: `${String(h).padStart(2, '0')}h`, count }));
-    const peakHour = hourlyData.reduce((m, c) => (c.count > m.count ? c : m), hourlyData[0]);
+    const peak = peakHour(hourly);
     const wasteBreakdown = [
       { name: 'Biodegradable', ...waste.Biodegradable, color: COLORS.bio },
       { name: 'Recyclable',    ...waste.Recyclable,    color: COLORS.blue },
@@ -219,16 +227,18 @@ export default function AnalyticsPage() {
 
     const activeUsers = active.size;
     return {
-      dailyTrend, hourlyData, peakHour, wasteBreakdown, topUsers,
+      dailyTrend, hourlyData, peak, wasteBreakdown, topUsers,
       totalDisposals: total,
       totalPoints,
       engagementRate: (stats?.customers ?? 0) > 0 ? (activeUsers / stats!.customers) * 100 : 0,
       avgPerUser: activeUsers > 0 ? total / activeUsers : 0,
-      redemptionRate: total > 0 ? ((stats?.redemptions ?? 0) / total) * 100 : 0,
+      // Redemptions per 100 disposals in the same period ("all" uses the all-time count).
+      redemptionRate: (spanDays ? redemptionsInRange : stats?.redemptions) === undefined
+        ? undefined : rate((spanDays ? redemptionsInRange : stats?.redemptions)!, total),
       growth: spanDays && prevTotal ? ((total - prevTotal) / prevTotal) * 100 : undefined,
       activeUsers,
     };
-  }, [logs, customers, stats, prevTotal, timeRange]);
+  }, [logs, customers, stats, prevTotal, redemptionsInRange, timeRange]);
 
   if (error) return <LoadError what="analytics" />;
 
@@ -239,7 +249,7 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-6 pb-10">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6">
+      <div className="bg-[#0F1847] border border-[#26336F] rounded-2xl p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-2xl bg-forest/60 ring-1 ring-green/25 flex items-center justify-center shrink-0">
@@ -257,10 +267,11 @@ export default function AnalyticsPage() {
             {(['7d', '30d', 'all'] as TimeRange[]).map(r => (
               <button
                 key={r}
+                aria-pressed={timeRange === r}
                 onClick={() => setTimeRange(r)}
                 className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
                   timeRange === r
-                    ? 'bg-[#B388FF] text-white shadow-lg shadow-purple-500/30'
+                    ? 'bg-green text-black'
                     : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white'
                 }`}
               >
@@ -281,19 +292,19 @@ export default function AnalyticsPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KPICard icon={Target}    label="Total Disposals"  value={data.totalDisposals}            change={data.growth}     color={COLORS.purple} />
           <KPICard icon={Zap}       label="Total Points"     value={data.totalPoints.toLocaleString()} sub="Eco-points earned" color={COLORS.orange} />
-          <KPICard icon={Users}     label="Engagement Rate"  value={`${data.engagementRate.toFixed(1)}%`} sub={`${data.activeUsers} active users`} color={COLORS.green} />
-          <KPICard icon={TrendingUp} label="Redemption Rate" value={`${data.redemptionRate.toFixed(1)}%`} sub={`${data.avgPerUser.toFixed(1)} disp/user`} color={COLORS.blue} />
+          <KPICard icon={Users}     label="Engagement Rate"  value={`${data.engagementRate.toFixed(1)}%`} sub={`${data.activeUsers} active, ${data.avgPerUser.toFixed(1)} disposals each`} color={COLORS.green} />
+          <KPICard icon={TrendingUp} label="Redemption Rate" value={data.redemptionRate === undefined ? '…' : `${data.redemptionRate.toFixed(1)}%`} sub="Redemptions per 100 disposals, same period" color={COLORS.blue} />
         </div>
       </div>
 
       {/* ── Main Charts ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Trend Chart */}
-        <div className="lg:col-span-2 bg-[#161D18] border border-[#2A342D] rounded-2xl p-6 hover:border-[#7CCFA5]/30 transition-all duration-300">
+        <div className="lg:col-span-2 bg-[#0F1847] border border-[#26336F] rounded-2xl p-6 hover:border-[#FFC914]/30 transition-all duration-300">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h3 className="text-white font-bold text-lg flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-[#7CCFA5]" />
+                <TrendingUp className="w-5 h-5 text-[#FFC914]" />
                 Performance Trend
               </h3>
               <p className="text-white/40 text-xs mt-1">Disposals, points & active users</p>
@@ -303,24 +314,24 @@ export default function AnalyticsPage() {
             <ComposedChart data={data.dailyTrend}>
               <defs>
                 <linearGradient id="gradDisp" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#7CCFA5" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#7CCFA5" stopOpacity={0} />
+                  <stop offset="5%"  stopColor="#FFC914" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#FFC914" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
-              <XAxis dataKey="date" stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
-              <YAxis stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#26336F" />
+              <XAxis dataKey="date" stroke="#FFF8EC30" tick={{ fill: '#FFF8EC50', fontSize: 11 }} />
+              <YAxis stroke="#FFF8EC30" tick={{ fill: '#FFF8EC50', fontSize: 11 }} />
               <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 12, color: '#F2EDE360' }} />
-              <Area  type="monotone" dataKey="Disposals" stroke="#7CCFA5" strokeWidth={2.5} fill="url(#gradDisp)" />
+              <Legend wrapperStyle={{ fontSize: 12, color: '#FFF8EC60' }} />
+              <Area  type="monotone" dataKey="Disposals" stroke="#FFC914" strokeWidth={2.5} fill="url(#gradDisp)" />
               <Line  type="monotone" dataKey="Users"     stroke="#00B0FF" strokeWidth={2}   dot={false} />
-              <Bar   dataKey="Points" fill="#E2AE68" opacity={0.5} radius={[4,4,0,0]} />
+              <Bar   dataKey="Points" fill="#FF8F5A" opacity={0.5} radius={[4,4,0,0]} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
 
         {/* Waste Breakdown Donut */}
-        <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6 hover:border-[#00B0FF]/30 transition-all duration-300">
+        <div className="bg-[#0F1847] border border-[#26336F] rounded-2xl p-6 hover:border-[#00B0FF]/30 transition-all duration-300">
           <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
             <Recycle className="w-5 h-5 text-[#00B0FF]" />
             Waste Distribution
@@ -361,18 +372,18 @@ export default function AnalyticsPage() {
       {/* ── Secondary Charts ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Stacked Bar */}
-        <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6 hover:border-[#E2AE68]/30 transition-all duration-300">
+        <div className="bg-[#0F1847] border border-[#26336F] rounded-2xl p-6 hover:border-[#FF8F5A]/30 transition-all duration-300">
           <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-[#E2AE68]" />
+            <Calendar className="w-5 h-5 text-[#FF8F5A]" />
             Daily Waste Breakdown
           </h3>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={data.dailyTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
-              <XAxis dataKey="date" stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
-              <YAxis stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#26336F" />
+              <XAxis dataKey="date" stroke="#FFF8EC30" tick={{ fill: '#FFF8EC50', fontSize: 11 }} />
+              <YAxis stroke="#FFF8EC30" tick={{ fill: '#FFF8EC50', fontSize: 11 }} />
               <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 12, color: '#F2EDE360' }} />
+              <Legend wrapperStyle={{ fontSize: 12, color: '#FFF8EC60' }} />
               <Bar dataKey="Bio" stackId="a" fill={COLORS.bio}  name="Bio" />
               <Bar dataKey="Rec" stackId="a" fill={COLORS.blue} name="Rec" />
               <Bar dataKey="Res" stackId="a" fill={COLORS.red}  name="Res" radius={[4,4,0,0]} />
@@ -381,25 +392,27 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Hourly Heatmap */}
-        <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6 hover:border-[#B388FF]/30 transition-all duration-300">
+        <div className="bg-[#0F1847] border border-[#26336F] rounded-2xl p-6 hover:border-[#B388FF]/30 transition-all duration-300">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-white font-bold text-lg flex items-center gap-2">
               <Clock className="w-5 h-5 text-[#B388FF]" />
               Activity by Hour
             </h3>
-            <span className="px-3 py-1 bg-[#E2AE68]/10 border border-[#E2AE68]/30 rounded-full text-[#E2AE68] text-xs font-bold">
-              Peak: {data.peakHour.hour}
-            </span>
+            {data.peak !== null && (
+              <span className="px-3 py-1 bg-[#FF8F5A]/10 border border-[#FF8F5A]/30 rounded-full text-[#FF8F5A] text-xs font-bold">
+                Peak: {data.hourlyData[data.peak].hour}
+              </span>
+            )}
           </div>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={data.hourlyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
-              <XAxis dataKey="hour" stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 10 }} interval={2} />
-              <YAxis stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#26336F" />
+              <XAxis dataKey="hour" stroke="#FFF8EC30" tick={{ fill: '#FFF8EC50', fontSize: 10 }} interval={2} />
+              <YAxis stroke="#FFF8EC30" tick={{ fill: '#FFF8EC50', fontSize: 11 }} />
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="count" name="Scans" radius={[4,4,0,0]}>
                 {data.hourlyData.map((e, i) => (
-                  <Cell key={i} fill={e.count === data.peakHour.count ? COLORS.orange : COLORS.purple} />
+                  <Cell key={i} fill={i === data.peak ? COLORS.orange : COLORS.purple} />
                 ))}
               </Bar>
             </BarChart>
@@ -408,33 +421,33 @@ export default function AnalyticsPage() {
       </div>
 
       {/* ── Points Trend ─────────────────────────────────────────────────────── */}
-      <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6 hover:border-[#E2AE68]/30 transition-all duration-300">
+      <div className="bg-[#0F1847] border border-[#26336F] rounded-2xl p-6 hover:border-[#FF8F5A]/30 transition-all duration-300">
         <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
-          <Zap className="w-5 h-5 text-[#E2AE68]" />
+          <Zap className="w-5 h-5 text-[#FF8F5A]" />
           Points Economy Trend
         </h3>
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={data.dailyTrend}>
             <defs>
               <linearGradient id="gradPts" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%"  stopColor="#E2AE68" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#E2AE68" stopOpacity={0} />
+                <stop offset="5%"  stopColor="#FF8F5A" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#FF8F5A" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
-            <XAxis dataKey="date" stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
-            <YAxis stroke="#F2EDE330" tick={{ fill: '#F2EDE350', fontSize: 11 }} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#26336F" />
+            <XAxis dataKey="date" stroke="#FFF8EC30" tick={{ fill: '#FFF8EC50', fontSize: 11 }} />
+            <YAxis stroke="#FFF8EC30" tick={{ fill: '#FFF8EC50', fontSize: 11 }} />
             <Tooltip content={<CustomTooltip />} />
-            <Area type="monotone" dataKey="Points" stroke="#E2AE68" strokeWidth={2.5} fill="url(#gradPts)" name="Points" />
+            <Area type="monotone" dataKey="Points" stroke="#FF8F5A" strokeWidth={2.5} fill="url(#gradPts)" name="Points" />
           </AreaChart>
         </ResponsiveContainer>
       </div>
 
       {/* ── Top Performers ────────────────────────────────────────────────────── */}
-      <div className="bg-[#161D18] border border-[#2A342D] rounded-2xl p-6 hover:border-[#7CCFA5]/20 transition-all duration-300">
+      <div className="bg-[#0F1847] border border-[#26336F] rounded-2xl p-6 hover:border-[#FFC914]/20 transition-all duration-300">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-white font-bold text-lg flex items-center gap-2">
-            <Award className="w-5 h-5 text-[#7CCFA5]" />
+            <Award className="w-5 h-5 text-[#FFC914]" />
             Top Performers Leaderboard
           </h3>
           <span className="text-white/30 text-xs">Ranked by eco-points</span>
@@ -452,7 +465,7 @@ export default function AnalyticsPage() {
                 className="flex items-center gap-4 p-4 bg-white/[0.03] rounded-xl hover:bg-white/[0.07] transition-all duration-200 group border border-transparent hover:border-white/10"
               >
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-bold text-sm group-hover:scale-110 transition-transform ${
-                  idx === 0 ? 'bg-[#E2AE68]/20 text-[#E2AE68]' :
+                  idx === 0 ? 'bg-[#FF8F5A]/20 text-[#FF8F5A]' :
                   idx === 1 ? 'bg-white/10 text-white/70' :
                   idx === 2 ? 'bg-[#8BC34A]/20 text-[#8BC34A]' :
                   'bg-white/5 text-white/40'
@@ -473,7 +486,7 @@ export default function AnalyticsPage() {
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className="text-[#E2AE68] font-bold text-lg" title="lifetime points">{lifetimeOf(user).toLocaleString()}</div>
+                  <div className="text-[#FF8F5A] font-bold text-lg" title="lifetime points">{lifetimeOf(user).toLocaleString()}</div>
                   <div className="text-white/30 text-xs">pts</div>
                 </div>
               </div>

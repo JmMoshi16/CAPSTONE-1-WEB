@@ -11,10 +11,11 @@ import { fmtAgo, fmtDate, timeOf } from '@/lib/dates';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import StatPill from '@/components/StatPill';
 import LoadError from '@/components/LoadError';
+import toast from 'react-hot-toast';
 
 const WASTE_COLORS: Record<WasteType, string> = {
   Biodegradable: '#8BC34A',
-  Recyclable: '#29B6F6',
+  Recyclable: '#00B0FF',
   Residual: '#EF5350',
 };
 const PAGE_SIZE = 50;   // rows rendered per 'Show more'; the data layer fetches 200 at a time
@@ -61,9 +62,15 @@ export default function ScanHistoryPage() {
 
   const showMore = async () => {
     if (shown + PAGE_SIZE > sorted.length && !noMore && !search && sorted.length < total) {
-      const more = await loadOlderScans(sorted[sorted.length - 1]?.scannedAt ?? '');
-      if (more.length === 0) setNoMore(true);
-      setOlder(o => [...o, ...more]);
+      try {
+        const more = await loadOlderScans(sorted[sorted.length - 1]?.scannedAt ?? '');
+        if (more.length === 0) setNoMore(true);
+        setOlder(o => [...o, ...more]);
+      } catch (e) {
+        console.error('[older scans]', e);
+        toast.error('Could not load older scans. Check the connection and try again.');
+        return;
+      }
     }
     setShown(s => s + PAGE_SIZE);
   };
@@ -90,7 +97,7 @@ export default function ScanHistoryPage() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatPill label="Total Scans" value={total} color="#7CCFA5" />
+          <StatPill label="Total Scans" value={total} color="#FFC914" />
           <StatPill label="Biodegradable" value={counts?.Biodegradable ?? '…'} color={WASTE_COLORS.Biodegradable} />
           <StatPill label="Recyclable" value={counts?.Recyclable ?? '…'} color={WASTE_COLORS.Recyclable} />
           <StatPill label="Residual" value={counts?.Residual ?? '…'} color={WASTE_COLORS.Residual} />
@@ -162,7 +169,7 @@ function ScanHistoryRow({ record, expiryMinutes, onClick }: ScanHistoryRowProps)
         <div className="text-green font-bold text-sm">+{record.pointsAwarded} pts</div>
         <div className="text-white/30 text-xs mt-0.5">{fmtAgo(record.scannedAt)}</div>
         <div className="w-16 bg-white/10 rounded-full h-1 mt-1.5">
-          <div className="h-1 rounded-full" style={{ width: `${pct}%`, backgroundColor: pct > 80 ? '#EF5350' : pct > 50 ? '#E2AE68' : '#7CCFA5' }} />
+          <div className="h-1 rounded-full" style={{ width: `${pct}%`, backgroundColor: pct > 80 ? '#EF5350' : pct > 50 ? '#FF8F5A' : '#FFC914' }} />
         </div>
         <div className="text-white/20 text-[10px] mt-0.5">{pct}% of window</div>
       </div>
@@ -209,7 +216,7 @@ function ScanReceiptDrawer({ record, expiryMinutes, onClose }: ScanReceiptDrawer
             <div className="border-t-2 border-dashed border-gray-200" />
             <div className="p-4 space-y-2.5 text-sm">
               <ReceiptRow label="Waste Type" value={record.wasteType} valueColor={color} />
-              <ReceiptRow label="Points Awarded" value={`+${record.pointsAwarded} pts`} valueColor="#5BB287" />
+              <ReceiptRow label="Points Awarded" value={`+${record.pointsAwarded} pts`} valueColor="#D9A800" />
               <ReceiptRow label="Scanned At" value={fmtDate(record.scannedAt, 'MMM d, yyyy h:mm:ss a')} />
               <ReceiptRow label="Token Generated" value={fmtDate(record.tokenCreatedAt, 'MMM d, yyyy h:mm:ss a')} />
               <ReceiptRow label="Token Expires At" value={fmtDate(record.expiresAt, 'h:mm:ss a')} />
@@ -221,11 +228,11 @@ function ScanReceiptDrawer({ record, expiryMinutes, onClose }: ScanReceiptDrawer
               <ReceiptRow label="Time to Scan" value={`${mins}m ${secs}s after generation`} />
               <ReceiptRow label="Time Remaining"
                 value={withinWindow ? `${Math.floor(remaining / 60)}m ${remaining % 60}s left` : 'Scanned after expiry'}
-                valueColor={withinWindow ? '#5BB287' : '#EF5350'} />
+                valueColor={withinWindow ? '#D9A800' : '#EF5350'} />
               <ReceiptRow label="Window Used" value={`${pct}% of ${expiryMinutes} min window`} />
               <div className="mt-2">
                 <div className="w-full bg-gray-100 rounded-full h-2">
-                  <div className="h-2 rounded-full" style={{ width: `${pct}%`, backgroundColor: pct > 80 ? '#EF5350' : pct > 50 ? '#E2AE68' : '#5BB287' }} />
+                  <div className="h-2 rounded-full" style={{ width: `${pct}%`, backgroundColor: pct > 80 ? '#EF5350' : pct > 50 ? '#FF8F5A' : '#D9A800' }} />
                 </div>
                 <div className="flex justify-between text-[10px] text-gray-400 mt-1">
                   <span>0:00</span><span>{expiryMinutes}:00</span>

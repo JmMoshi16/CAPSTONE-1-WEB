@@ -9,14 +9,17 @@ import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import { subscribeToRecentWasteLogs, subscribeToWasteLogs, subscribeToLeaderboard, getAdminStats, type AdminStats } from '@/lib/firebaseService';
 import { UserModel, WasteLog, WasteType, lifetimeOf, creditedOf } from '@/lib/types';
 import { toDate } from '@/lib/dates';
+import { activeStreak } from '@/lib/claim';
 import { format, subDays, startOfDay, isToday, isYesterday, startOfWeek, startOfMonth } from 'date-fns';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import LoadError from '@/components/LoadError';
 import PageLoader from '@/components/PageLoader';
 import CountUp from '@/components/CountUp';
+import { useWaitingCodes } from '@/components/RedemptionAlerts';
 
 type TimeRange = 'today' | 'week' | 'month' | 'all';
 const TIME_RANGES: TimeRange[] = ['today', 'week', 'month', 'all'];
+const RANGE_LABEL: Record<TimeRange, string> = { today: 'today', week: 'this week', month: 'this month', all: 'all time' };
 const WASTE_COLORS: Record<WasteType, string> = { Biodegradable: '#8BC34A', Recyclable: '#00B0FF', Residual: '#EF5350' };
 
 export default function DashboardPage() {
@@ -27,6 +30,7 @@ export default function DashboardPage() {
   const [recentLogs, setRecentLogs] = useState<WasteLog[] | null>(null);
   const [allLogs, setAllLogs] = useState<WasteLog[] | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>('week');
+  const waitingCodes = useWaitingCodes();   // live: a redemption made a second ago counts
 
   useEffect(() => {
     getAdminStats().then(setStats).catch(e => console.error('[dashboard stats]', e));
@@ -91,7 +95,6 @@ export default function DashboardPage() {
     const totalPoints = stats?.lifetimePoints ?? 0;
     const avgPointsPerUser = customerCount > 0 ? totalPoints / customerCount : 0;
     const bio = typeCount.Biodegradable, rec = typeCount.Recyclable, res = typeCount.Residual;
-    const pendingRedemptions = stats?.pendingRedemptions ?? 0;
     const redemptionTotal = stats?.redemptions ?? 0;
 
     return {
@@ -111,14 +114,11 @@ export default function DashboardPage() {
         return { date: format(new Date(`${k}T00:00:00`), 'MMM dd'), disposals: d.disposals, points: d.points, users: d.users.size };
       }),
       userStats: customers.slice(0, 5)
-        .map(u => ({ ...u, disposals: disposalsInRange.get(u.uid) ?? 0 })),
+        .map(u => ({ ...u, disposals: disposalsInRange.get(u.uid) ?? 0, streak: activeStreak(u, now) })),
       wastePerformance: (['Biodegradable', 'Recyclable', 'Residual'] as WasteType[]).map(type => ({
         type, count: typeCount[type], points: typePoints[type], color: WASTE_COLORS[type], percentage: pct(typeCount[type], inRange),
       })),
-      pendingRedemptions,
       redemptionTotal,
-      claimedRedemptions: redemptionTotal - pendingRedemptions,
-      redemptionRate: pct(redemptionTotal, inRange),
     };
   }, [logs, customers, stats, timeRange]);
 
@@ -142,28 +142,46 @@ export default function DashboardPage() {
             Live: numbers update as scans arrive
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        {/* The period drives the KPI totals, the waste mix and the hourly chart; the trend chart is always 14 days. */}
+        <div role="group" aria-label="Period for the totals and breakdowns" className="flex gap-1.5">
+          {TIME_RANGES.map(range => (
+            <button
+              key={range}
+              aria-pressed={timeRange === range}
+              onClick={() => setTimeRange(range)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                timeRange === range
+                  ? 'bg-green text-black'
+                  : 'bg-white/5 text-white/60 hover:bg-white/10'
+              }`}
+            >
+              {range.charAt(0).toUpperCase() + range.slice(1)}
+            </button>
+          ))}
+        </div>
         <Link href="/bins" className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.04] ring-1 ring-border text-sm text-white/70 hover:text-white hover:ring-green/30 transition">
           Check the bins <ArrowUpRight className="w-4 h-4" aria-hidden />
         </Link>
+        </div>
       </header>
 
       {/* Today at a glance. Change badges compare with yesterday and only appear when there is a yesterday. */}
       <section aria-label="Today" className="bg-card border border-border rounded-2xl grid grid-cols-3 divide-x divide-border">
         <QuickStat label="Scans today" value={analytics.todayDisposals} change={analytics.disposalChange} />
         <QuickStat label="Points credited today" value={analytics.dailyTrend[13]?.points ?? 0} change={analytics.pointsChange} />
-        <QuickStat label="Rewards to hand out" value={analytics.pendingRedemptions}
-          note={analytics.pendingRedemptions > 0 ? 'Waiting at the counter' : 'All handed out'} href="/rewards" />
+        <QuickStat label="Rewards to hand out" value={waitingCodes}
+          note={waitingCodes > 0 ? 'Waiting at the counter' : 'All handed out'} href="/rewards" />
       </section>
 
       {/* Main KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <KPICard
           icon={Recycle}
-          label="Total Disposals"
+          label={`Disposals ${RANGE_LABEL[timeRange]}`}
           value={analytics.totalDisposals}
           subtitle={`${analytics.todayDisposals} today`}
-          color="#7CCFA5"
-          trend={analytics.disposalChange}
+          color="#FFC914"
         />
         <KPICard
           icon={Users}
@@ -177,13 +195,13 @@ export default function DashboardPage() {
           label="Lifetime Points Earned"
           value={analytics.totalPoints}
           subtitle={`Avg ${Math.round(analytics.avgPointsPerUser)}/customer`}
-          color="#E2AE68"
+          color="#FF8F5A"
         />
         <KPICard
           icon={Receipt}
           label="Redemptions"
           value={analytics.redemptionTotal}
-          subtitle={`${analytics.pendingRedemptions} pending`}
+          subtitle={`${waitingCodes} pending`}
           color="#B388FF"
         />
       </div>
@@ -192,52 +210,34 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Daily Trend Chart */}
         <div className="lg:col-span-2 bg-card border border-border rounded-2xl p-6 hover:border-green/20 transition-all duration-300 hover:shadow-2xl hover:shadow-green/5">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-white font-bold text-lg flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-green" />
-                14-Day Performance Trend
-              </h3>
-              <p className="text-white/40 text-sm mt-1">Disposals, Points & Active Users</p>
-            </div>
-            <div className="flex gap-2">
-              {TIME_RANGES.map(range => (
-                <button
-                  key={range}
-                  aria-pressed={timeRange === range}
-                  onClick={() => setTimeRange(range)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    timeRange === range
-                      ? 'bg-green text-black'
-                      : 'bg-white/5 text-white/60 hover:bg-white/10'
-                  }`}
-                >
-                  {range.charAt(0).toUpperCase() + range.slice(1)}
-                </button>
-              ))}
-            </div>
+          <div className="mb-6">
+            <h3 className="text-white font-bold text-lg flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-green" />
+              Last 14 Days
+            </h3>
+            <p className="text-white/40 text-sm mt-1">Disposals and points credited per day</p>
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={analytics.dailyTrend}>
               <defs>
                 <linearGradient id="colorDisposals" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#7CCFA5" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#7CCFA5" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#FFC914" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#FFC914" stopOpacity={0}/>
                 </linearGradient>
                 <linearGradient id="colorPoints" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#E2AE68" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#E2AE68" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#FF8F5A" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#FF8F5A" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
-              <XAxis dataKey="date" stroke="#F2EDE340" style={{ fontSize: '11px' }} />
-              <YAxis stroke="#F2EDE340" style={{ fontSize: '11px' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#26336F" />
+              <XAxis dataKey="date" stroke="#FFF8EC40" style={{ fontSize: '11px' }} />
+              <YAxis stroke="#FFF8EC40" style={{ fontSize: '11px' }} />
               <Tooltip
-                contentStyle={{ backgroundColor: '#161D18', border: '1px solid #2A342D', borderRadius: '12px', padding: '12px' }}
-                labelStyle={{ color: '#F2EDE3', fontWeight: 'bold', marginBottom: '8px' }}
+                contentStyle={{ backgroundColor: '#0F1847', border: '1px solid #26336F', borderRadius: '12px', padding: '12px' }}
+                labelStyle={{ color: '#FFF8EC', fontWeight: 'bold', marginBottom: '8px' }}
               />
-              <Area type="monotone" dataKey="disposals" stroke="#7CCFA5" strokeWidth={3} fill="url(#colorDisposals)" />
-              <Area type="monotone" dataKey="points" stroke="#E2AE68" strokeWidth={2} fill="url(#colorPoints)" />
+              <Area type="monotone" dataKey="disposals" stroke="#FFC914" strokeWidth={3} fill="url(#colorDisposals)" />
+              <Area type="monotone" dataKey="points" stroke="#FF8F5A" strokeWidth={2} fill="url(#colorPoints)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -265,7 +265,7 @@ export default function DashboardPage() {
                 ))}
               </Pie>
               <Tooltip
-                contentStyle={{ backgroundColor: '#161D18', border: '1px solid #2A342D', borderRadius: '12px' }}
+                contentStyle={{ backgroundColor: '#0F1847', border: '1px solid #26336F', borderRadius: '12px' }}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -293,13 +293,13 @@ export default function DashboardPage() {
           </h3>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={analytics.hourlyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2A342D" />
-              <XAxis dataKey="hour" stroke="#F2EDE340" style={{ fontSize: '10px' }} interval={2} />
-              <YAxis stroke="#F2EDE340" style={{ fontSize: '11px' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#26336F" />
+              <XAxis dataKey="hour" stroke="#FFF8EC40" style={{ fontSize: '10px' }} interval={2} />
+              <YAxis stroke="#FFF8EC40" style={{ fontSize: '11px' }} />
               <Tooltip
-                contentStyle={{ backgroundColor: '#161D18', border: '1px solid #2A342D', borderRadius: '12px' }}
+                contentStyle={{ backgroundColor: '#0F1847', border: '1px solid #26336F', borderRadius: '12px' }}
               />
-              <Bar dataKey="count" fill="#E2AE68" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="count" fill="#FF8F5A" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -373,10 +373,8 @@ export default function DashboardPage() {
           </h3>
           <div className="space-y-4">
             <HealthMetric label="Customers active this week" status={`${analytics.activeUsers} of ${analytics.totalCustomers}`} color="#00B0FF" percentage={analytics.activeRate} />
-            <HealthMetric label="Redemptions waiting to be handed out" status={`${analytics.pendingRedemptions} pending`} color="#E2AE68"
-              percentage={analytics.redemptionTotal > 0 ? (analytics.pendingRedemptions / analytics.redemptionTotal) * 100 : 0} />
-            <HealthMetric label="Redemptions handed out" status={`${analytics.claimedRedemptions} claimed`} color="#7CCFA5"
-              percentage={analytics.redemptionTotal > 0 ? (analytics.claimedRedemptions / analytics.redemptionTotal) * 100 : 0} />
+            <HealthMetric label="Redemptions waiting to be handed out" status={`${waitingCodes} pending`} color="#FF8F5A"
+              percentage={analytics.redemptionTotal > 0 ? (waitingCodes / analytics.redemptionTotal) * 100 : 0} />
             <p className="text-white/30 text-xs">Data connection: live (Firestore listeners). Kiosk status: see Bin Management.</p>
           </div>
         </div>

@@ -3,19 +3,17 @@
 export const dynamic = 'force-dynamic';
 
 import { useEffect, useState } from 'react';
-import { Gift, Plus, Edit2, Trash2, Check, Coffee, Utensils, Tag as TagIcon, HourglassIcon, CheckCircle, Download, LucideIcon } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { Gift, Plus, Edit2, Trash2, Check, Coffee, Utensils, Tag as TagIcon, HourglassIcon, CheckCircle, Download, Search, BellRing, XCircle, AlertTriangle, LucideIcon } from 'lucide-react';
 import { subscribeToRewards, subscribeToRedemptions, addReward, updateReward, deleteReward, markRedemptionClaimed, exportToCSV } from '@/lib/firebaseService';
 import { Reward, Redemption, RewardCategory } from '@/lib/types';
-import { fmtDate, isOlderThanDays } from '@/lib/dates';
+import { fmtDate, fmtAgo } from '@/lib/dates';
+import { isExpired, checkCode, normalizeCode } from '@/lib/redemptions';
 import { useLoadTimeout } from '@/lib/useLoadTimeout';
 import ConfirmModal from '@/components/ConfirmModal';
 import LoadError from '@/components/LoadError';
 import PageLoader from '@/components/PageLoader';
 import toast from 'react-hot-toast';
-
-// Same rule the phone app shows customers: a reward code is valid for 7 days.
-const REDEMPTION_VALID_DAYS = 7;
-const isExpired = (r: Redemption) => r.status === 'pending' && isOlderThanDays(r.redeemedAt, REDEMPTION_VALID_DAYS);
 
 const CATEGORY_ICONS: Record<RewardCategory, LucideIcon> = {
   Coffee, Food: Utensils, Discount: TagIcon, Other: Gift,
@@ -30,6 +28,14 @@ export default function RewardsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Reward | null>(null);
   const [claimTarget, setClaimTarget] = useState<Redemption | null>(null);
   const [ready, setReady] = useState({ rewards: false, redemptions: false });
+  const [codeQuery, setCodeQuery] = useState('');
+
+  // A new-redemption alert links here with ?code=…: open the Redemptions tab with that code already checked.
+  // Read from the router, not on mount: staff may already be on this page when the next alert arrives.
+  const codeParam = useSearchParams().get('code');
+  useEffect(() => {
+    if (codeParam) { setActiveTab('redemptions'); setCodeQuery(codeParam); }
+  }, [codeParam]);
 
   useEffect(() => {
     const unsubRewards = subscribeToRewards(data => { setRewards(data); setReady(r => ({ ...r, rewards: true })); });
@@ -57,19 +63,17 @@ export default function RewardsPage() {
   const handleConfirmClaimed = async () => {
     const r = claimTarget;
     if (!r?.id) return;
-    if (isExpired(r)) {
-      toast.error('This code has expired (older than 7 days) and cannot be handed out.');
-      setClaimTarget(null);
-      return;
-    }
     try {
+      // Re-checked against the database: already handed out or expired codes are refused there.
       await markRedemptionClaimed(r.id);
       toast.success(`"${r.rewardTitle}" marked as claimed`);
-      setClaimTarget(null);
+      setCodeQuery('');
     } catch (e) {
       console.error(e);
-      toast.error('Could not mark it as claimed. Check the connection and try again.');
+      // Our own refusals are plain Errors; Firestore's carry a `code`.
+      toast.error(e instanceof Error && !('code' in e) ? e.message : 'Could not mark it as claimed. Check the connection and try again.');
     }
+    setClaimTarget(null);
   };
 
   const handleExport = () => {
@@ -126,7 +130,7 @@ export default function RewardsPage() {
             >
               {tab === 'rewards' ? `Rewards (${rewards.length})` : 'Redemptions'}
               {tab === 'redemptions' && pendingCount > 0 && (
-                <span className="px-2 py-0.5 bg-orange rounded-full text-white text-xs font-bold">{pendingCount}</span>
+                <span className="px-2 py-0.5 bg-orange rounded-full text-black text-xs font-bold">{pendingCount}</span>
               )}
               {activeTab === tab && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-green" />}
             </button>
@@ -150,7 +154,7 @@ export default function RewardsPage() {
           </div>
         )
       ) : (
-        <RedemptionsTab redemptions={redemptions} onMarkClaimed={setClaimTarget} />
+        <RedemptionsTab redemptions={redemptions} query={codeQuery} onQuery={setCodeQuery} onMarkClaimed={setClaimTarget} />
       )}
 
       {showForm && (
@@ -229,15 +233,47 @@ function RewardCard({ reward, onEdit, onDelete }: RewardCardProps) {
   );
 }
 
-interface RedemptionsTabProps { redemptions: Redemption[]; onMarkClaimed: (r: Redemption) => void }
-function RedemptionsTab({ redemptions, onMarkClaimed }: RedemptionsTabProps) {
-  const pending = redemptions.filter(r => r.status === 'pending');
-  const claimed = redemptions.filter(r => r.status === 'claimed');
-
-  if (redemptions.length === 0) return <EmptyState icon={CheckCircle} message="No redemptions yet" />;
+interface RedemptionsTabProps {
+  redemptions: Redemption[]; query: string; onQuery: (q: string) => void; onMarkClaimed: (r: Redemption) => void;
+}
+function RedemptionsTab({ redemptions, query, onQuery, onMarkClaimed }: RedemptionsTabProps) {
+  // Typing part of a code, an email or a reward narrows the lists; a full code also gets a verdict above them.
+  const q = query.trim().toLowerCase();
+  const code = normalizeCode(query);
+  const shown = !q ? redemptions : redemptions.filter(r =>
+    (code && normalizeCode(r.redemptionCode ?? '').includes(code)) ||
+    (r.userEmail ?? '').toLowerCase().includes(q) || (r.rewardTitle ?? '').toLowerCase().includes(q));
+  const pending = shown.filter(r => r.status === 'pending' && !isExpired(r));
+  const expired = shown.filter(r => isExpired(r));
+  const claimed = shown.filter(r => r.status === 'claimed');
 
   return (
     <div className="space-y-6">
+      <div className="bg-card border border-border rounded-card p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <label htmlFor="code-check" className="text-white font-bold">Check a customer&apos;s code</label>
+          <DesktopAlertsButton />
+        </div>
+        <div className="relative">
+          <Search className="w-5 h-5 text-white/40 absolute left-4 top-1/2 -translate-y-1/2" aria-hidden />
+          <input
+            id="code-check"
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={e => onQuery(e.target.value)}
+            placeholder="Type the code on their phone, e.g. AB12CD34"
+            className="w-full bg-raised border border-border rounded-btn pl-12 pr-4 py-3.5 text-lg text-white tracking-wider uppercase placeholder:normal-case placeholder:tracking-normal placeholder:text-base placeholder:text-white/40 focus:outline-none focus:border-green/60"
+          />
+        </div>
+        <CodeVerdict query={query} redemptions={redemptions} onMarkClaimed={onMarkClaimed} />
+      </div>
+
+      {redemptions.length === 0 && <EmptyState icon={CheckCircle} message="No redemptions yet" />}
+      {redemptions.length > 0 && q && shown.length === 0 && (
+        <p className="text-white/50 text-sm text-center py-6">Nothing matches &ldquo;{query.trim()}&rdquo;.</p>
+      )}
       {pending.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
@@ -262,7 +298,85 @@ function RedemptionsTab({ redemptions, onMarkClaimed }: RedemptionsTabProps) {
           </div>
         </div>
       )}
+      {expired.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-1 h-4 bg-white/30 rounded" />
+            <span className="text-white/60 font-bold text-sm">Expired, not collected</span>
+            <span className="px-2 py-0.5 bg-white/10 rounded-full text-white/60 text-xs font-bold">{expired.length}</span>
+          </div>
+          <div className="space-y-3">
+            {expired.map(r => <RedemptionCard key={r.id} redemption={r} />)}
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+/** The answer for a full code: hand it out, or why not. Says nothing while the code is still being typed. */
+function CodeVerdict({ query, redemptions, onMarkClaimed }: { query: string; redemptions: Redemption[]; onMarkClaimed: (r: Redemption) => void }) {
+  const check = checkCode(query, redemptions);
+  if (check.kind === 'empty') return null;
+  if (check.kind === 'partial') return <p className="text-white/50 text-sm">Keep typing: codes are 8 letters and numbers.</p>;
+  if (check.kind === 'notFound') {
+    return (
+      <Verdict tone="bad" icon={XCircle} title="No reward has this code"
+        detail="Check each character with the customer (0 and O, 1 and I look alike). Do not hand anything out." />
+    );
+  }
+  const r = check.redemption;
+  const who = r.userEmail || r.userId.substring(0, 8);
+  if (check.kind === 'claimed') {
+    return <Verdict tone="bad" icon={XCircle} title="Already handed out" detail={`${r.rewardTitle} for ${who} was collected before. Do not give it again.`} />;
+  }
+  if (check.kind === 'expired') {
+    return <Verdict tone="warn" icon={AlertTriangle} title="Expired" detail={`${r.rewardTitle} for ${who} was redeemed ${fmtAgo(r.redeemedAt)}. Codes last 7 days, so it can't be handed out.`} />;
+  }
+  return (
+    <div role="status" className="rounded-btn border border-green/40 bg-green/10 p-4 space-y-3">
+      <div className="flex items-start gap-3">
+        <CheckCircle className="w-6 h-6 text-green shrink-0" aria-hidden />
+        <div>
+          <div className="text-green font-bold text-lg">Valid: give them {r.rewardTitle}</div>
+          <div className="text-white/70 text-sm">For {who}, redeemed {fmtAgo(r.redeemedAt)} ({r.pointsUsed} pts already taken).</div>
+        </div>
+      </div>
+      <button onClick={() => onMarkClaimed(r)}
+        className="w-full bg-green hover:bg-dark-green text-black font-bold py-3 rounded-btn transition flex items-center justify-center gap-2">
+        <Check className="w-5 h-5" aria-hidden /> Mark as Claimed
+      </button>
+    </div>
+  );
+}
+
+function Verdict({ tone, icon: Icon, title, detail }: { tone: 'bad' | 'warn'; icon: LucideIcon; title: string; detail: string }) {
+  const color = tone === 'bad' ? 'res' : 'orange';
+  return (
+    <div role="status" className={`rounded-btn border p-4 flex items-start gap-3 ${color === 'res' ? 'border-res/40 bg-res/10' : 'border-orange/40 bg-orange/10'}`}>
+      <Icon className={`w-6 h-6 shrink-0 ${color === 'res' ? 'text-res' : 'text-orange'}`} aria-hidden />
+      <div>
+        <div className={`font-bold text-lg ${color === 'res' ? 'text-res' : 'text-orange'}`}>{title}</div>
+        <div className="text-white/70 text-sm">{detail}</div>
+      </div>
+    </div>
+  );
+}
+
+/** Lets this browser show a system notification for new redemptions while the console is in a background tab. */
+function DesktopAlertsButton() {
+  const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>('unsupported');
+  useEffect(() => { if (typeof Notification !== 'undefined') setPermission(Notification.permission); }, []);
+  if (permission === 'unsupported') return null;
+  if (permission === 'granted') {
+    return <span className="text-white/50 text-xs flex items-center gap-1.5"><BellRing className="w-4 h-4 text-green" aria-hidden />Desktop alerts on</span>;
+  }
+  if (permission === 'denied') return <span className="text-white/40 text-xs">Desktop alerts blocked in this browser&apos;s site settings</span>;
+  return (
+    <button onClick={() => Notification.requestPermission().then(setPermission)}
+      className="text-xs font-semibold text-green flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-green/10 hover:bg-green/20 transition">
+      <BellRing className="w-4 h-4" aria-hidden /> Alert me on new redemptions
+    </button>
   );
 }
 
